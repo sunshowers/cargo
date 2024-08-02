@@ -4,6 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
 use cargo_platform::CfgExpr;
 use cargo_util::{paths, ProcessBuilder};
 
@@ -41,7 +42,7 @@ pub struct Doctest {
     /// Whether or not -Zunstable-options is needed.
     pub unstable_opts: bool,
     /// The -Clinker value to use.
-    pub linker: Option<PathBuf>,
+    pub linker: Option<Utf8PathBuf>,
     /// The script metadata, if this unit's package has a build script.
     ///
     /// This is used for indexing [`Compilation::extra_env`].
@@ -57,7 +58,7 @@ pub struct UnitOutput {
     /// The unit that generated this output.
     pub unit: Unit,
     /// Path to the unit's primary output (an executable or cdylib).
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     /// The script metadata, if this unit's package has a build script.
     ///
     /// This is used for indexing [`Compilation::extra_env`].
@@ -84,17 +85,17 @@ pub struct Compilation<'gctx> {
     /// LD_LIBRARY_PATH as appropriate.
     ///
     /// The order should be deterministic.
-    pub native_dirs: BTreeSet<PathBuf>,
+    pub native_dirs: BTreeSet<Utf8PathBuf>,
 
     /// Root output directory (for the local package's artifacts)
-    pub root_output: HashMap<CompileKind, PathBuf>,
+    pub root_output: HashMap<CompileKind, Utf8PathBuf>,
 
     /// Output directory for rust dependencies.
     /// May be for the host or for a specific target.
-    pub deps_output: HashMap<CompileKind, PathBuf>,
+    pub deps_output: HashMap<CompileKind, Utf8PathBuf>,
 
     /// The path to libstd for each target
-    sysroot_target_libdir: HashMap<CompileKind, PathBuf>,
+    sysroot_target_libdir: HashMap<CompileKind, Utf8PathBuf>,
 
     /// Extra environment variables that were passed to compilations and should
     /// be passed to future invocations of programs.
@@ -119,9 +120,9 @@ pub struct Compilation<'gctx> {
     /// rustc_workspace_wrapper_process
     primary_rustc_process: Option<ProcessBuilder>,
 
-    target_runners: HashMap<CompileKind, Option<(PathBuf, Vec<String>)>>,
+    target_runners: HashMap<CompileKind, Option<(Utf8PathBuf, Vec<String>)>>,
     /// The linker to use for each host or target.
-    target_linkers: HashMap<CompileKind, Option<PathBuf>>,
+    target_linkers: HashMap<CompileKind, Option<Utf8PathBuf>>,
 }
 
 impl<'gctx> Compilation<'gctx> {
@@ -236,12 +237,12 @@ impl<'gctx> Compilation<'gctx> {
         )
     }
 
-    pub fn target_runner(&self, kind: CompileKind) -> Option<&(PathBuf, Vec<String>)> {
+    pub fn target_runner(&self, kind: CompileKind) -> Option<&(Utf8PathBuf, Vec<String>)> {
         self.target_runners.get(&kind).and_then(|x| x.as_ref())
     }
 
     /// Gets the user-specified linker for a particular host or target.
-    pub fn target_linker(&self, kind: CompileKind) -> Option<PathBuf> {
+    pub fn target_linker(&self, kind: CompileKind) -> Option<Utf8PathBuf> {
         self.target_linkers.get(&kind).and_then(|x| x.clone())
     }
 
@@ -300,24 +301,24 @@ impl<'gctx> Compilation<'gctx> {
                 // hack is added for both phases.
                 // TODO: handle doctest-xcompile
                 search_path.extend(super::filter_dynamic_search_path(
-                    self.native_dirs.iter(),
-                    &self.root_output[&CompileKind::Host],
+                    self.native_dirs.iter().map(|p| p.as_std_path()),
+                    self.root_output[&CompileKind::Host].as_std_path(),
                 ));
             }
-            search_path.push(self.deps_output[&CompileKind::Host].clone());
+            search_path.push(self.deps_output[&CompileKind::Host].clone().into());
         } else {
             search_path.extend(super::filter_dynamic_search_path(
-                self.native_dirs.iter(),
-                &self.root_output[&kind],
+                self.native_dirs.iter().map(|p| p.as_std_path()),
+                &self.root_output[&kind].as_std_path(),
             ));
-            search_path.push(self.deps_output[&kind].clone());
-            search_path.push(self.root_output[&kind].clone());
+            search_path.push(self.deps_output[&kind].clone().into());
+            search_path.push(self.root_output[&kind].clone().into());
             // For build-std, we don't want to accidentally pull in any shared
             // libs from the sysroot that ships with rustc. This may not be
             // required (at least I cannot craft a situation where it
             // matters), but is here to be safe.
             if self.gctx.cli_unstable().build_std.is_none() {
-                search_path.push(self.sysroot_target_libdir[&kind].clone());
+                search_path.push(self.sysroot_target_libdir[&kind].clone().into());
             }
         }
 
@@ -416,7 +417,7 @@ fn fill_rustc_tool_env(mut cmd: ProcessBuilder, unit: &Unit) -> ProcessBuilder {
 
 fn get_sysroot_target_libdir(
     bcx: &BuildContext<'_, '_>,
-) -> CargoResult<HashMap<CompileKind, PathBuf>> {
+) -> CargoResult<HashMap<CompileKind, Utf8PathBuf>> {
     bcx.all_kinds
         .iter()
         .map(|&kind| {
@@ -446,7 +447,7 @@ fn get_sysroot_target_libdir(
 fn target_runner(
     bcx: &BuildContext<'_, '_>,
     kind: CompileKind,
-) -> CargoResult<Option<(PathBuf, Vec<String>)>> {
+) -> CargoResult<Option<(Utf8PathBuf, Vec<String>)>> {
     let target = bcx.target_data.short_name(&kind);
 
     // try target.{}.runner
@@ -486,7 +487,10 @@ fn target_runner(
 }
 
 /// Gets the user-specified linker for a particular host or target from the configuration.
-fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<Option<PathBuf>> {
+fn target_linker(
+    bcx: &BuildContext<'_, '_>,
+    kind: CompileKind,
+) -> CargoResult<Option<Utf8PathBuf>> {
     // Try host.linker and target.{}.linker.
     if let Some(path) = bcx
         .target_data

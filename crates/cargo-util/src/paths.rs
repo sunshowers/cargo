@@ -1,6 +1,7 @@
 //! Various utilities for working with files and paths.
 
 use anyhow::{Context, Result};
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use filetime::FileTime;
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -8,7 +9,7 @@ use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::iter;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use tempfile::Builder as TempFileBuilder;
 
 /// Joins paths into a string suitable for the `PATH` environment variable.
@@ -81,26 +82,26 @@ pub fn dylib_path() -> Vec<PathBuf> {
 /// [`std::fs::canonicalize`] can be hard to use correctly, since it can often
 /// fail, or on Windows returns annoying device paths. This is a problem Cargo
 /// needs to improve on.
-pub fn normalize_path(path: &Path) -> PathBuf {
+pub fn normalize_path(path: &Utf8Path) -> Utf8PathBuf {
     let mut components = path.components().peekable();
-    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+    let mut ret = if let Some(c @ Utf8Component::Prefix(..)) = components.peek().cloned() {
         components.next();
-        PathBuf::from(c.as_os_str())
+        Utf8PathBuf::from(c.as_str())
     } else {
-        PathBuf::new()
+        Utf8PathBuf::new()
     };
 
     for component in components {
         match component {
-            Component::Prefix(..) => unreachable!(),
-            Component::RootDir => {
-                ret.push(component.as_os_str());
+            Utf8Component::Prefix(..) => unreachable!(),
+            Utf8Component::RootDir => {
+                ret.push(component.as_str());
             }
-            Component::CurDir => {}
-            Component::ParentDir => {
+            Utf8Component::CurDir => {}
+            Utf8Component::ParentDir => {
                 ret.pop();
             }
-            Component::Normal(c) => {
+            Utf8Component::Normal(c) => {
                 ret.push(c);
             }
         }
@@ -112,7 +113,7 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 /// on searching the `PATH` environment variable.
 ///
 /// Returns an error if it cannot be found.
-pub fn resolve_executable(exec: &Path) -> Result<PathBuf> {
+pub fn resolve_executable(exec: &Utf8Path) -> Result<Utf8PathBuf> {
     if exec.components().count() == 1 {
         let paths = env::var_os("PATH").ok_or_else(|| anyhow::format_err!("no PATH"))?;
         let candidates = env::split_paths(&paths).flat_map(|path| {
@@ -126,11 +127,11 @@ pub fn resolve_executable(exec: &Path) -> Result<PathBuf> {
         });
         for candidate in candidates {
             if candidate.is_file() {
-                return Ok(candidate);
+                return Utf8PathBuf::try_from(candidate).context("candidate path is not utf-8");
             }
         }
 
-        anyhow::bail!("no executable for `{}` found in PATH", exec.display())
+        anyhow::bail!("no executable for `{}` found in PATH", exec)
     } else {
         Ok(exec.into())
     }
@@ -270,7 +271,7 @@ pub fn open<P: AsRef<Path>>(path: P) -> Result<File> {
 }
 
 /// Returns the last modification time of a file.
-pub fn mtime(path: &Path) -> Result<FileTime> {
+pub fn mtime(path: &Utf8Path) -> Result<FileTime> {
     let meta = metadata(path)?;
     Ok(FileTime::from_last_modification_time(&meta))
 }
@@ -358,7 +359,7 @@ pub fn mtime_recursive(path: &Path) -> Result<FileTime> {
 
 /// Record the current time on the filesystem (using the filesystem's clock)
 /// using a file at the given directory. Returns the current time.
-pub fn set_invocation_time(path: &Path) -> Result<FileTime> {
+pub fn set_invocation_time(path: &Utf8Path) -> Result<FileTime> {
     // note that if `FileTime::from_system_time(SystemTime::now());` is determined to be sufficient,
     // then this can be removed.
     let timestamp = path.join("invoked.timestamp");
@@ -372,38 +373,16 @@ pub fn set_invocation_time(path: &Path) -> Result<FileTime> {
 }
 
 /// Converts a path to UTF-8 bytes.
-pub fn path2bytes(path: &Path) -> Result<&[u8]> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::prelude::*;
-        Ok(path.as_os_str().as_bytes())
-    }
-    #[cfg(windows)]
-    {
-        match path.as_os_str().to_str() {
-            Some(s) => Ok(s.as_bytes()),
-            None => Err(anyhow::format_err!(
-                "invalid non-unicode path: {}",
-                path.display()
-            )),
-        }
-    }
+pub fn path2bytes(path: &Utf8Path) -> &[u8] {
+    path.as_str().as_bytes()
 }
 
 /// Converts UTF-8 bytes to a path.
-pub fn bytes2path(bytes: &[u8]) -> Result<PathBuf> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::prelude::*;
-        Ok(PathBuf::from(OsStr::from_bytes(bytes)))
-    }
-    #[cfg(windows)]
-    {
-        use std::str;
-        match str::from_utf8(bytes) {
-            Ok(s) => Ok(PathBuf::from(s)),
-            Err(..) => Err(anyhow::format_err!("invalid non-unicode path")),
-        }
+pub fn bytes2path(bytes: &[u8]) -> Result<Utf8PathBuf> {
+    use std::str;
+    match str::from_utf8(bytes) {
+        Ok(s) => Ok(Utf8PathBuf::from(s)),
+        Err(..) => Err(anyhow::format_err!("invalid non-unicode path")),
     }
 }
 

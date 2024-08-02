@@ -59,6 +59,7 @@
 
 use crate::compare::{assert_match_exact, find_json_mismatch};
 use crate::registry::{self, alt_api_path, FeatureMap};
+use camino::Utf8Path;
 use flate2::read::GzDecoder;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -122,7 +123,7 @@ pub fn validate_alt_upload(
 }
 
 fn _validate_upload(
-    new_path: &Path,
+    new_path: &Utf8Path,
     expected_json: &str,
     expected_crate_name: &str,
     expected_files: &[&str],
@@ -255,7 +256,7 @@ pub(crate) fn create_index_line(
     json.to_string()
 }
 
-pub(crate) fn write_to_index(registry_path: &Path, name: &str, line: String, local: bool) {
+pub(crate) fn write_to_index(registry_path: &Utf8Path, name: &str, line: String, local: bool) {
     let file = cargo_util::registry::make_dep_path(name, false);
 
     // Write file/line in the index.

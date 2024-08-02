@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
-
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use cargo_util_schemas::core::PackageIdSpec;
 use serde::ser;
 use serde::Serialize;
@@ -22,7 +22,7 @@ pub trait Message: ser::Serialize {
 #[derive(Serialize)]
 pub struct FromCompiler<'a> {
     pub package_id: PackageIdSpec,
-    pub manifest_path: &'a Path,
+    pub manifest_path: &'a Utf8Path,
     pub target: &'a Target,
     pub message: Box<RawValue>,
 }
@@ -36,12 +36,12 @@ impl<'a> Message for FromCompiler<'a> {
 #[derive(Serialize)]
 pub struct Artifact<'a> {
     pub package_id: PackageIdSpec,
-    pub manifest_path: PathBuf,
+    pub manifest_path: Utf8PathBuf,
     pub target: &'a Target,
     pub profile: ArtifactProfile,
     pub features: Vec<String>,
-    pub filenames: Vec<PathBuf>,
-    pub executable: Option<PathBuf>,
+    pub filenames: Vec<Utf8PathBuf>,
+    pub executable: Option<Utf8PathBuf>,
     pub fresh: bool,
 }
 
@@ -78,7 +78,7 @@ pub struct BuildScript<'a> {
     pub linked_paths: &'a [String],
     pub cfgs: &'a [String],
     pub env: &'a [(String, String)],
-    pub out_dir: &'a Path,
+    pub out_dir: &'a Utf8Path,
 }
 
 impl<'a> Message for BuildScript<'a> {

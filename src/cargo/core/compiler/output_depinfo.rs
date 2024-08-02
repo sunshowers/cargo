@@ -1,10 +1,11 @@
 //! dep-info files for external build system integration.
 //! See [`output_depinfo`] for more.
 
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util::paths::normalize_path;
 use std::collections::{BTreeSet, HashSet};
 use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::{fingerprint, BuildRunner, FileFlavor, Unit};
 use crate::util::{internal, CargoResult};
@@ -12,11 +13,9 @@ use cargo_util::paths;
 use tracing::debug;
 
 /// Bacially just normalizes a given path and converts it to a string.
-fn render_filename<P: AsRef<Path>>(path: P, basedir: Option<&str>) -> CargoResult<String> {
-    fn wrap_path(path: &Path) -> CargoResult<String> {
-        path.to_str()
-            .ok_or_else(|| internal(format!("path `{:?}` not utf-8", path)))
-            .map(|f| f.replace(" ", "\\ "))
+fn render_filename<P: AsRef<Utf8Path>>(path: P, basedir: Option<&str>) -> String {
+    fn wrap_path(path: &Utf8Path) -> String {
+        path.as_str().replace(" ", "\\ ")
     }
 
     let path = path.as_ref();
@@ -42,7 +41,7 @@ fn render_filename<P: AsRef<Path>>(path: P, basedir: Option<&str>) -> CargoResul
 ///
 /// [fingerprint dep-info]: super::fingerprint#fingerprint-dep-info-files
 fn add_deps_for_unit(
-    deps: &mut BTreeSet<PathBuf>,
+    deps: &mut BTreeSet<Utf8PathBuf>,
     build_runner: &mut BuildRunner<'_, '_>,
     unit: &Unit,
     visited: &mut HashSet<Unit>,

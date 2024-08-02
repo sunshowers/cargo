@@ -14,12 +14,12 @@ use crate::util::context::{GlobalContext, StringList, TargetConfig};
 use crate::util::interning::InternedString;
 use crate::util::{CargoResult, Rustc};
 use anyhow::Context as _;
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_platform::{Cfg, CfgExpr};
 use cargo_util::{paths, ProcessBuilder};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Entry, HashMap};
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::{self, FromStr};
 
@@ -46,10 +46,10 @@ pub struct TargetInfo {
     /// Supported values for `-Csplit-debuginfo=` flag, queried from rustc
     support_split_debuginfo: Vec<String>,
     /// Path to the sysroot.
-    pub sysroot: PathBuf,
+    pub sysroot: Utf8PathBuf,
     /// Path to the "lib" directory in the sysroot which rustc uses for linking
     /// target libraries.
-    pub sysroot_target_libdir: PathBuf,
+    pub sysroot_target_libdir: Utf8PathBuf,
     /// Extra flags to pass to `rustc`, see [`extra_args`].
     pub rustflags: Rc<[String]>,
     /// Extra flags to pass to `rustdoc`, see [`extra_args`].
@@ -220,7 +220,7 @@ impl TargetInfo {
             let Some(line) = lines.next() else {
                 return error_missing_print_output("sysroot", &process, &output, &error);
             };
-            let sysroot = PathBuf::from(line);
+            let sysroot = Utf8PathBuf::from(line);
             let sysroot_target_libdir = {
                 let mut libdir = sysroot.clone();
                 libdir.push("lib");
@@ -1063,7 +1063,7 @@ impl RustDocFingerprint {
                 serde_json::to_string(&actual_rustdoc_target_data)?,
             )
         };
-        let Ok(rustdoc_data) = paths::read(&fingerprint_path) else {
+        let Ok(rustdoc_data) = paths::read(fingerprint_path.as_std_path()) else {
             // If the fingerprint does not exist, do not clear out the doc
             // directories. Otherwise this ran into problems where projects
             // like bootstrap were creating the doc directory before running
@@ -1101,10 +1101,10 @@ impl RustDocFingerprint {
         write_fingerprint()?;
         return Ok(());
 
-        fn clean_doc(path: &Path) -> CargoResult<()> {
+        fn clean_doc(path: &Utf8Path) -> CargoResult<()> {
             let entries = path
                 .read_dir()
-                .with_context(|| format!("failed to read directory `{}`", path.display()))?;
+                .with_context(|| format!("failed to read directory `{}`", path))?;
             for entry in entries {
                 let entry = entry?;
                 // Don't remove hidden files. Rustdoc does not create them,

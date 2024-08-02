@@ -16,6 +16,7 @@ use crate::util::errors::CargoResult;
 use crate::util::style;
 use crate::util::GlobalContext;
 use anyhow::Context as _;
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util::paths;
 use sys::*;
 
@@ -144,39 +145,39 @@ impl Drop for FileLock {
 /// [`LockFileEx`]: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex
 #[derive(Clone, Debug)]
 pub struct Filesystem {
-    root: PathBuf,
+    root: Utf8PathBuf,
 }
 
 impl Filesystem {
     /// Creates a new filesystem to be rooted at the given path.
-    pub fn new(path: PathBuf) -> Filesystem {
+    pub fn new(path: Utf8PathBuf) -> Filesystem {
         Filesystem { root: path }
     }
 
-    /// Like `Path::join`, creates a new filesystem rooted at this filesystem
-    /// joined with the given path.
-    pub fn join<T: AsRef<Path>>(&self, other: T) -> Filesystem {
+    /// Like `Utf8Path::join`, creates a new filesystem rooted at this filesystem joined with the
+    /// given path.
+    pub fn join<T: AsRef<Utf8Path>>(&self, other: T) -> Filesystem {
         Filesystem::new(self.root.join(other))
     }
 
     /// Like `Path::push`, pushes a new path component onto this filesystem.
-    pub fn push<T: AsRef<Path>>(&mut self, other: T) {
+    pub fn push<T: AsRef<Utf8Path>>(&mut self, other: T) {
         self.root.push(other);
     }
 
-    /// Consumes this filesystem and returns the underlying `PathBuf`.
+    /// Consumes this filesystem and returns the underlying `Utf8PathBuf`.
     ///
     /// Note that this is a relatively dangerous operation and should be used
     /// with great caution!.
-    pub fn into_path_unlocked(self) -> PathBuf {
+    pub fn into_path_unlocked(self) -> Utf8PathBuf {
         self.root
     }
 
-    /// Returns the underlying `Path`.
+    /// Returns the underlying `Utf8Path`.
     ///
     /// Note that this is a relatively dangerous operation and should be used
     /// with great caution!.
-    pub fn as_path_unlocked(&self) -> &Path {
+    pub fn as_path_unlocked(&self) -> &Utf8Path {
         &self.root
     }
 

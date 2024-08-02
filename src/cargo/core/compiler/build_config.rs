@@ -3,10 +3,10 @@ use crate::util::context::JobsConfig;
 use crate::util::interning::InternedString;
 use crate::util::{CargoResult, GlobalContext, RustfixDiagnosticServer};
 use anyhow::{bail, Context as _};
+use camino::Utf8PathBuf;
 use cargo_util::ProcessBuilder;
 use serde::ser;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread::available_parallelism;
 
@@ -41,7 +41,7 @@ pub struct BuildConfig {
     /// `target/(debug\release)` as usual.
     /// Named `export_dir` to avoid confusion with
     /// `CompilationFiles::artifact_dir`.
-    pub export_dir: Option<PathBuf>,
+    pub export_dir: Option<Utf8PathBuf>,
     /// `true` to output a future incompatibility report at the end of the build
     pub future_incompat_report: bool,
     /// Which kinds of build timings to output (empty if none).

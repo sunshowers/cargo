@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 use std::time::Duration;
 
 pub use self::canonical_url::CanonicalUrl;
@@ -119,18 +119,18 @@ pub fn truncate_with_ellipsis(s: &str, max_width: usize) -> String {
 
 #[cfg(not(windows))]
 #[inline]
-pub fn try_canonicalize<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
-    std::fs::canonicalize(&path)
+pub fn try_canonicalize<P: AsRef<Utf8Path>>(path: P) -> std::io::Result<Utf8PathBuf> {
+    path.as_ref().canonicalize_utf8()
 }
 
 #[cfg(windows)]
 #[inline]
-pub fn try_canonicalize<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
+pub fn try_canonicalize<P: AsRef<Utf8Path>>(path: P) -> std::io::Result<Utf8PathBuf> {
     use std::io::Error;
     use std::io::ErrorKind;
 
     // On Windows `canonicalize` may fail, so we fall back to getting an absolute path.
-    std::fs::canonicalize(&path).or_else(|_| {
+    path.as_ref().canonicalize_utf8().or_else(|_| {
         // Return an error if a file does not exist for better compatibility with `canonicalize`
         if !path.as_ref().try_exists()? {
             return Err(Error::new(ErrorKind::NotFound, "the path was not found"));

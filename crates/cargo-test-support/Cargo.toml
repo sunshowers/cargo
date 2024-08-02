@@ -12,6 +12,7 @@ description = "Testing framework for Cargo's testsuite."
 anstream.workspace = true
 anstyle.workspace = true
 anyhow.workspace = true
+camino.workspace = true
 cargo-test-macro.workspace = true
 cargo-util.workspace = true
 crates-io.workspace = true

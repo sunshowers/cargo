@@ -50,13 +50,15 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::fs;
 use std::os;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{self, Duration};
 
 use anyhow::{bail, Result};
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use cargo_util::{is_ci, ProcessError};
 use snapbox::IntoData as _;
 use url::Url;
@@ -133,13 +135,13 @@ pub mod prelude {
 
 #[derive(PartialEq, Clone)]
 struct FileBuilder {
-    path: PathBuf,
+    path: Utf8PathBuf,
     body: String,
     executable: bool,
 }
 
 impl FileBuilder {
-    pub fn new(path: PathBuf, body: &str, executable: bool) -> FileBuilder {
+    pub fn new(path: Utf8PathBuf, body: &str, executable: bool) -> FileBuilder {
         FileBuilder {
             path,
             body: body.to_string(),
@@ -149,14 +151,14 @@ impl FileBuilder {
 
     fn mk(&mut self) {
         if self.executable {
-            let mut path = self.path.clone().into_os_string();
-            write!(path, "{}", env::consts::EXE_SUFFIX).unwrap();
+            let mut path = self.path.clone().into_string();
+            path.push_str(env::consts::EXE_SUFFIX);
             self.path = path.into();
         }
 
         self.dirname().mkdir_p();
         fs::write(&self.path, &self.body)
-            .unwrap_or_else(|e| panic!("could not create file {}: {}", self.path.display(), e));
+            .unwrap_or_else(|e| panic!("could not create file {}: {}", self.path, e));
 
         #[cfg(unix)]
         if self.executable {
@@ -169,20 +171,20 @@ impl FileBuilder {
         }
     }
 
-    fn dirname(&self) -> &Path {
+    fn dirname(&self) -> &Utf8Path {
         self.path.parent().unwrap()
     }
 }
 
 #[derive(PartialEq, Clone)]
 struct SymlinkBuilder {
-    dst: PathBuf,
-    src: PathBuf,
+    dst: Utf8PathBuf,
+    src: Utf8PathBuf,
     src_is_dir: bool,
 }
 
 impl SymlinkBuilder {
-    pub fn new(dst: PathBuf, src: PathBuf) -> SymlinkBuilder {
+    pub fn new(dst: Utf8PathBuf, src: Utf8PathBuf) -> SymlinkBuilder {
         SymlinkBuilder {
             dst,
             src,
@@ -190,7 +192,7 @@ impl SymlinkBuilder {
         }
     }
 
-    pub fn new_dir(dst: PathBuf, src: PathBuf) -> SymlinkBuilder {
+    pub fn new_dir(dst: Utf8PathBuf, src: Utf8PathBuf) -> SymlinkBuilder {
         SymlinkBuilder {
             dst,
             src,
@@ -219,7 +221,7 @@ impl SymlinkBuilder {
         }
     }
 
-    fn dirname(&self) -> &Path {
+    fn dirname(&self) -> &Utf8Path {
         self.src.parent().unwrap()
     }
 }
@@ -228,7 +230,7 @@ impl SymlinkBuilder {
 ///
 /// See [`ProjectBuilder`] or [`Project::from_template`] to get started.
 pub struct Project {
-    root: PathBuf,
+    root: Utf8PathBuf,
 }
 
 /// Create a project to run tests against
@@ -252,19 +254,19 @@ impl ProjectBuilder {
     /// Root of the project
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo`
-    pub fn root(&self) -> PathBuf {
+    pub fn root(&self) -> Utf8PathBuf {
         self.root.root()
     }
 
     /// Project's debug dir
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target/debug`
-    pub fn target_debug_dir(&self) -> PathBuf {
+    pub fn target_debug_dir(&self) -> Utf8PathBuf {
         self.root.target_debug_dir()
     }
 
     /// Create project in `root`
-    pub fn new(root: PathBuf) -> ProjectBuilder {
+    pub fn new(root: Utf8PathBuf) -> ProjectBuilder {
         ProjectBuilder {
             root: Project { root },
             files: vec![],
@@ -274,7 +276,7 @@ impl ProjectBuilder {
     }
 
     /// Create project, relative to [`paths::root`]
-    pub fn at<P: AsRef<Path>>(mut self, path: P) -> Self {
+    pub fn at<P: AsRef<Utf8Path>>(mut self, path: P) -> Self {
         self.root = Project {
             root: paths::root().join(path),
         };
@@ -282,18 +284,18 @@ impl ProjectBuilder {
     }
 
     /// Adds a file to the project.
-    pub fn file<B: AsRef<Path>>(mut self, path: B, body: &str) -> Self {
+    pub fn file<B: AsRef<Utf8Path>>(mut self, path: B, body: &str) -> Self {
         self._file(path.as_ref(), body, false);
         self
     }
 
     /// Adds an executable file to the project.
-    pub fn executable<B: AsRef<Path>>(mut self, path: B, body: &str) -> Self {
+    pub fn executable<B: AsRef<Utf8Path>>(mut self, path: B, body: &str) -> Self {
         self._file(path.as_ref(), body, true);
         self
     }
 
-    fn _file(&mut self, path: &Path, body: &str, executable: bool) {
+    fn _file(&mut self, path: &Utf8Path, body: &str, executable: bool) {
         self.files.push(FileBuilder::new(
             self.root.root().join(path),
             body,
@@ -302,7 +304,7 @@ impl ProjectBuilder {
     }
 
     /// Adds a symlink to a file to the project.
-    pub fn symlink<T: AsRef<Path>>(mut self, dst: T, src: T) -> Self {
+    pub fn symlink<T: AsRef<Utf8Path>>(mut self, dst: T, src: T) -> Self {
         self.symlinks.push(SymlinkBuilder::new(
             self.root.root().join(dst),
             self.root.root().join(src),
@@ -311,7 +313,7 @@ impl ProjectBuilder {
     }
 
     /// Create a symlink to a directory
-    pub fn symlink_dir<T: AsRef<Path>>(mut self, dst: T, src: T) -> Self {
+    pub fn symlink_dir<T: AsRef<Utf8Path>>(mut self, dst: T, src: T) -> Self {
         self.symlinks.push(SymlinkBuilder::new_dir(
             self.root.root().join(dst),
             self.root.root().join(src),
@@ -335,7 +337,7 @@ impl ProjectBuilder {
         let manifest_path = self.root.root().join("Cargo.toml");
         if !self.no_manifest && self.files.iter().all(|fb| fb.path != manifest_path) {
             self._file(
-                Path::new("Cargo.toml"),
+                Utf8Path::new("Cargo.toml"),
                 &basic_manifest("foo", "0.0.1"),
                 false,
             )
@@ -381,21 +383,21 @@ impl Project {
     /// Root of the project
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo`
-    pub fn root(&self) -> PathBuf {
+    pub fn root(&self) -> Utf8PathBuf {
         self.root.clone()
     }
 
     /// Project's target dir
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target`
-    pub fn build_dir(&self) -> PathBuf {
+    pub fn build_dir(&self) -> Utf8PathBuf {
         self.root().join("target")
     }
 
     /// Project's debug dir
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target/debug`
-    pub fn target_debug_dir(&self) -> PathBuf {
+    pub fn target_debug_dir(&self) -> Utf8PathBuf {
         self.build_dir().join("debug")
     }
 
@@ -412,7 +414,7 @@ impl Project {
     /// `kind` should be one of: "lib", "rlib", "staticlib", "dylib", "proc-macro"
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target/debug/examples/libex.rlib`
-    pub fn example_lib(&self, name: &str, kind: &str) -> PathBuf {
+    pub fn example_lib(&self, name: &str, kind: &str) -> Utf8PathBuf {
         self.target_debug_dir()
             .join("examples")
             .join(paths::get_lib_filename(name, kind))
@@ -421,7 +423,7 @@ impl Project {
     /// Path to a debug binary.
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target/debug/foo`
-    pub fn bin(&self, b: &str) -> PathBuf {
+    pub fn bin(&self, b: &str) -> Utf8PathBuf {
         self.build_dir()
             .join("debug")
             .join(&format!("{}{}", b, env::consts::EXE_SUFFIX))
@@ -430,7 +432,7 @@ impl Project {
     /// Path to a release binary.
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target/release/foo`
-    pub fn release_bin(&self, b: &str) -> PathBuf {
+    pub fn release_bin(&self, b: &str) -> Utf8PathBuf {
         self.build_dir()
             .join("release")
             .join(&format!("{}{}", b, env::consts::EXE_SUFFIX))
@@ -439,7 +441,7 @@ impl Project {
     /// Path to a debug binary for a specific target triple.
     ///
     /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/foo/target/i686-apple-darwin/debug/foo`
-    pub fn target_bin(&self, target: &str, b: &str) -> PathBuf {
+    pub fn target_bin(&self, target: &str, b: &str) -> Utf8PathBuf {
         self.build_dir().join(target).join("debug").join(&format!(
             "{}{}",
             b,
@@ -448,10 +450,9 @@ impl Project {
     }
 
     /// Returns an iterator of paths within [`Project::root`] matching the glob pattern
-    pub fn glob<P: AsRef<Path>>(&self, pattern: P) -> glob::Paths {
+    pub fn glob<P: AsRef<Utf8Path>>(&self, pattern: P) -> glob::Paths {
         let pattern = self.root().join(pattern);
-        glob::glob(pattern.to_str().expect("failed to convert pattern to str"))
-            .expect("failed to glob")
+        glob::glob(pattern.as_str()).expect("failed to glob")
     }
 
     /// Overwrite a file with new content
@@ -534,8 +535,7 @@ impl Project {
     /// Returns the contents of a path in the project root
     pub fn read_file(&self, path: &str) -> String {
         let full = self.root().join(path);
-        fs::read_to_string(&full)
-            .unwrap_or_else(|e| panic!("could not read file {}: {}", full.display(), e))
+        fs::read_to_string(&full).unwrap_or_else(|e| panic!("could not read file {}: {}", full, e))
     }
 
     /// Modifies `Cargo.toml` to remove all commented lines.
@@ -544,7 +544,7 @@ impl Project {
         fs::write(self.root().join("Cargo.toml"), contents).unwrap();
     }
 
-    pub fn symlink(&self, src: impl AsRef<Path>, dst: impl AsRef<Path>) {
+    pub fn symlink(&self, src: impl AsRef<Utf8Path>, dst: impl AsRef<Utf8Path>) {
         let src = self.root().join(src.as_ref());
         let dst = self.root().join(dst.as_ref());
         #[cfg(unix)]
@@ -920,19 +920,19 @@ impl Execs {
         self
     }
 
-    pub fn cwd<T: AsRef<OsStr>>(&mut self, path: T) -> &mut Self {
+    pub fn cwd<T: AsRef<str>>(&mut self, path: T) -> &mut Self {
         if let Some(ref mut p) = self.process_builder {
             if let Some(cwd) = p.get_cwd() {
                 let new_path = cwd.join(path.as_ref());
                 p.cwd(new_path);
             } else {
-                p.cwd(path);
+                p.cwd(path.as_ref());
             }
         }
         self
     }
 
-    fn get_cwd(&self) -> Option<&Path> {
+    fn get_cwd(&self) -> Option<&Utf8Path> {
         self.process_builder.as_ref().and_then(|p| p.get_cwd())
     }
 
@@ -1471,13 +1471,13 @@ pub trait TestEnvCommandExt: Sized {
         self
     }
 
-    fn current_dir<S: AsRef<std::path::Path>>(self, path: S) -> Self;
+    fn current_dir<S: AsRef<Utf8Path>>(self, path: S) -> Self;
     fn env<S: AsRef<std::ffi::OsStr>>(self, key: &str, value: S) -> Self;
     fn env_remove(self, key: &str) -> Self;
 }
 
 impl TestEnvCommandExt for &mut ProcessBuilder {
-    fn current_dir<S: AsRef<std::path::Path>>(self, path: S) -> Self {
+    fn current_dir<S: AsRef<Utf8Path>>(self, path: S) -> Self {
         let path = path.as_ref();
         self.cwd(path)
     }
@@ -1490,8 +1490,8 @@ impl TestEnvCommandExt for &mut ProcessBuilder {
 }
 
 impl TestEnvCommandExt for snapbox::cmd::Command {
-    fn current_dir<S: AsRef<std::path::Path>>(self, path: S) -> Self {
-        self.current_dir(path)
+    fn current_dir<S: AsRef<Utf8Path>>(self, path: S) -> Self {
+        self.current_dir(path.as_ref())
     }
     fn env<S: AsRef<std::ffi::OsStr>>(self, key: &str, value: S) -> Self {
         self.env(key, value)

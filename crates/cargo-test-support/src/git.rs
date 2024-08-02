@@ -41,6 +41,7 @@
 //! use some of the helper functions in this file to interact with the repository.
 
 use crate::{paths::CargoPathExt, project, Project, ProjectBuilder, SymlinkBuilder};
+use camino::{Utf8Path, Utf8PathBuf};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
@@ -52,6 +53,8 @@ use url::Url;
 #[must_use]
 pub struct RepoBuilder {
     repo: git2::Repository,
+    // Store the workdir as Utf8PathBuf to avoid the need for `unwrap`.
+    workdir: Utf8PathBuf,
     files: Vec<PathBuf>,
 }
 
@@ -61,16 +64,18 @@ pub struct Repository(git2::Repository);
 /// Create a [`RepoBuilder`] to build a new git repository.
 ///
 /// Call [`RepoBuilder::build()`] to finalize and create the repository.
-pub fn repo(p: &Path) -> RepoBuilder {
+pub fn repo(p: &Utf8Path) -> RepoBuilder {
     RepoBuilder::init(p)
 }
 
 impl RepoBuilder {
-    pub fn init(p: &Path) -> RepoBuilder {
+    pub fn init(p: &Utf8Path) -> RepoBuilder {
         t!(fs::create_dir_all(p.parent().unwrap()));
         let repo = init(p);
+        let workdir = t!(Utf8PathBuf::try_from(repo.workdir().unwrap().to_path_buf()));
         RepoBuilder {
             repo,
+            workdir,
             files: Vec::new(),
         }
     }
@@ -83,8 +88,8 @@ impl RepoBuilder {
     }
 
     /// Create a symlink to a directory
-    pub fn nocommit_symlink_dir<T: AsRef<Path>>(self, dst: T, src: T) -> Self {
-        let workdir = self.repo.workdir().unwrap();
+    pub fn nocommit_symlink_dir<T: AsRef<Utf8Path>>(self, dst: T, src: T) -> Self {
+        let workdir = &self.workdir;
         SymlinkBuilder::new_dir(workdir.join(dst), workdir.join(src)).mk();
         self
     }
@@ -119,12 +124,12 @@ impl RepoBuilder {
 }
 
 impl Repository {
-    pub fn root(&self) -> &Path {
-        self.0.workdir().unwrap()
+    pub fn root(&self) -> &Utf8Path {
+        self.0.workdir().unwrap().try_into().unwrap()
     }
 
     pub fn url(&self) -> Url {
-        self.0.workdir().unwrap().to_url()
+        self.root().to_url()
     }
 
     pub fn revparse_head(&self) -> String {
@@ -137,7 +142,7 @@ impl Repository {
 }
 
 /// *(`git2`)* Initialize a new repository at the given path.
-pub fn init(path: &Path) -> git2::Repository {
+pub fn init(path: &Utf8Path) -> git2::Repository {
     default_search_path();
     let repo = t!(git2::Repository::init(path));
     default_repo_cfg(&repo);
@@ -151,10 +156,13 @@ fn default_search_path() {
     static INIT: Once = Once::new();
     INIT.call_once(|| unsafe {
         let path = global_root().join("blank_git_search_path");
-        t!(set_search_path(ConfigLevel::System, &path));
-        t!(set_search_path(ConfigLevel::Global, &path));
-        t!(set_search_path(ConfigLevel::XDG, &path));
-        t!(set_search_path(ConfigLevel::ProgramData, &path));
+        t!(set_search_path(ConfigLevel::System, path.as_std_path()));
+        t!(set_search_path(ConfigLevel::Global, path.as_std_path()));
+        t!(set_search_path(ConfigLevel::XDG, path.as_std_path()));
+        t!(set_search_path(
+            ConfigLevel::ProgramData,
+            path.as_std_path()
+        ));
     })
 }
 

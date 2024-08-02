@@ -44,6 +44,7 @@
 use crate::git::repo;
 use crate::paths;
 use crate::publish::{create_index_line, write_to_index};
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util::paths::append;
 use cargo_util::Sha256;
 use flate2::write::GzEncoder;
@@ -56,7 +57,6 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
 use tar::{Builder, Header};
 use time::format_description::well_known::Rfc3339;
@@ -70,7 +70,7 @@ use url::Url;
 /// and `api_path` for uploads.
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/registry`
-pub fn registry_path() -> PathBuf {
+pub fn registry_path() -> Utf8PathBuf {
     generate_path("registry")
 }
 
@@ -80,7 +80,7 @@ pub fn registry_path() -> PathBuf {
 /// request here. For example, `api/v1/crates/new` is the result of publishing a crate.
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/api`
-pub fn api_path() -> PathBuf {
+pub fn api_path() -> Utf8PathBuf {
     generate_path("api")
 }
 
@@ -91,14 +91,14 @@ pub fn api_path() -> PathBuf {
 /// endpoint. This is rarely used and must be manually set up.
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/dl`
-pub fn dl_path() -> PathBuf {
+pub fn dl_path() -> Utf8PathBuf {
     generate_path("dl")
 }
 
 /// Path to the alternative-registry version of [`registry_path`]
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/alternative-registry`
-pub fn alt_registry_path() -> PathBuf {
+pub fn alt_registry_path() -> Utf8PathBuf {
     generate_path("alternative-registry")
 }
 
@@ -110,18 +110,18 @@ fn alt_registry_url() -> Url {
 /// Path to the alternative-registry version of [`dl_path`]
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/alternative-dl`
-pub fn alt_dl_path() -> PathBuf {
+pub fn alt_dl_path() -> Utf8PathBuf {
     generate_path("alternative-dl")
 }
 
 /// Path to the alternative-registry version of [`api_path`]
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/alternative-api`
-pub fn alt_api_path() -> PathBuf {
+pub fn alt_api_path() -> Utf8PathBuf {
     generate_path("alternative-api")
 }
 
-fn generate_path(name: &str) -> PathBuf {
+fn generate_path(name: &str) -> Utf8PathBuf {
     paths::root().join(name)
 }
 fn generate_url(name: &str) -> Url {
@@ -186,7 +186,7 @@ pub struct RegistryBuilder {
 pub struct TestRegistry {
     server: Option<HttpServerHandle>,
     index_url: Url,
-    path: PathBuf,
+    path: Utf8PathBuf,
     api_url: Url,
     dl_url: Url,
     token: Token,
@@ -411,7 +411,7 @@ impl RegistryBuilder {
         if self.configure_registry {
             if let Some(alternative) = &self.alternative {
                 append(
-                    &config_path,
+                    config_path.as_std_path(),
                     format!(
                         "
                         [registries.{alternative}]
@@ -423,7 +423,7 @@ impl RegistryBuilder {
                 .unwrap();
                 if let Some(p) = &self.credential_provider {
                     append(
-                        &config_path,
+                        config_path.as_std_path(),
                         &format!(
                             "
                         credential-provider = {p}
@@ -435,7 +435,7 @@ impl RegistryBuilder {
                 }
             } else {
                 append(
-                    &config_path,
+                    config_path.as_std_path(),
                     format!(
                         "
                         [source.crates-io]
@@ -451,7 +451,7 @@ impl RegistryBuilder {
 
                 if let Some(p) = &self.credential_provider {
                     append(
-                        &config_path,
+                        config_path.as_std_path(),
                         &format!(
                             "
                         [registry]
@@ -471,7 +471,7 @@ impl RegistryBuilder {
                 Token::Plaintext(token) => {
                     if let Some(alternative) = &self.alternative {
                         append(
-                            &credentials,
+                            credentials.as_std_path(),
                             format!(
                                 r#"
                                     [registries.{alternative}]
@@ -483,7 +483,7 @@ impl RegistryBuilder {
                         .unwrap();
                     } else {
                         append(
-                            &credentials,
+                            credentials.as_std_path(),
                             format!(
                                 r#"
                                     [registry]
@@ -506,7 +506,7 @@ impl RegistryBuilder {
                         out += &format!("secret-key-subject = \"{subject}\"\n");
                     }
 
-                    append(&credentials, out.as_bytes()).unwrap();
+                    append(credentials.as_std_path(), out.as_bytes()).unwrap();
                 }
             }
         }
@@ -601,7 +601,7 @@ pub struct Dependency {
 #[non_exhaustive]
 enum EntryData {
     Regular(String),
-    Symlink(PathBuf),
+    Symlink(Utf8PathBuf),
 }
 
 /// A file to be created in a package.
@@ -701,9 +701,9 @@ pub struct Response {
 
 pub struct HttpServer {
     listener: TcpListener,
-    registry_path: PathBuf,
-    dl_path: PathBuf,
-    api_path: PathBuf,
+    registry_path: Utf8PathBuf,
+    dl_path: Utf8PathBuf,
+    api_path: Utf8PathBuf,
     addr: SocketAddr,
     token: Token,
     auth_required: bool,
@@ -723,9 +723,9 @@ struct Mutation<'a> {
 
 impl HttpServer {
     pub fn new(
-        registry_path: PathBuf,
-        dl_path: PathBuf,
-        api_path: PathBuf,
+        registry_path: Utf8PathBuf,
+        dl_path: Utf8PathBuf,
+        api_path: Utf8PathBuf,
         token: Token,
         auth_required: bool,
         custom_responders: HashMap<String, RequestCallback>,
@@ -1058,7 +1058,7 @@ impl HttpServer {
         let file = self
             .dl_path
             .join(req.url.path().strip_prefix("/dl/").unwrap());
-        println!("{}", file.display());
+        println!("{}", file);
         if !file.exists() {
             return self.not_found(req);
         }
@@ -1181,11 +1181,11 @@ impl HttpServer {
 }
 
 fn save_new_crate(
-    dst: PathBuf,
+    dst: Utf8PathBuf,
     new_crate: crates_io::NewCrate,
     file: &[u8],
     file_cksum: String,
-    registry_path: &Path,
+    registry_path: &Utf8Path,
 ) {
     // Write the `.crate`
     t!(fs::create_dir_all(dst.parent().unwrap()));
@@ -1689,7 +1689,7 @@ impl Package {
     }
 
     /// Returns the path to the compressed package file.
-    pub fn archive_dst(&self) -> PathBuf {
+    pub fn archive_dst(&self) -> Utf8PathBuf {
         if self.local {
             let path = if self.alternative {
                 alt_registry_path()

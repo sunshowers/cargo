@@ -1,18 +1,19 @@
 //! Common executables that can be reused by various tests.
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use crate::{basic_manifest, paths, project, Project};
-use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-static ECHO_WRAPPER: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
-static ECHO: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
-static CLIPPY_DRIVER: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+static ECHO_WRAPPER: OnceLock<Mutex<Option<Utf8PathBuf>>> = OnceLock::new();
+static ECHO: OnceLock<Mutex<Option<Utf8PathBuf>>> = OnceLock::new();
+static CLIPPY_DRIVER: OnceLock<Mutex<Option<Utf8PathBuf>>> = OnceLock::new();
 
 /// Returns the path to an executable that works as a wrapper around rustc.
 ///
 /// The wrapper will echo the command line it was called with to stderr.
-pub fn echo_wrapper() -> PathBuf {
+pub fn echo_wrapper() -> Utf8PathBuf {
     let mut lock = ECHO_WRAPPER
         .get_or_init(|| Default::default())
         .lock()
@@ -54,12 +55,12 @@ pub fn echo_wrapper() -> PathBuf {
 /// Returns the path to an executable that prints its arguments.
 ///
 /// Do not expect this to be anything fancy.
-pub fn echo() -> PathBuf {
+pub fn echo() -> Utf8PathBuf {
     let mut lock = ECHO.get_or_init(|| Default::default()).lock().unwrap();
     if let Some(path) = &*lock {
         return path.clone();
     }
-    if let Ok(path) = cargo_util::paths::resolve_executable(Path::new("echo")) {
+    if let Ok(path) = cargo_util::paths::resolve_executable(Utf8Path::new("echo")) {
         *lock = Some(path.clone());
         return path;
     }
@@ -110,7 +111,7 @@ pub fn echo_subcommand() -> Project {
 }
 
 /// A wrapper around `rustc` instead of calling `clippy`.
-pub fn wrapped_clippy_driver() -> PathBuf {
+pub fn wrapped_clippy_driver() -> Utf8PathBuf {
     let mut lock = CLIPPY_DRIVER
         .get_or_init(|| Default::default())
         .lock()

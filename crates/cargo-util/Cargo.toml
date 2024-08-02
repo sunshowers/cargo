@@ -10,6 +10,7 @@ description = "Miscellaneous support code used by Cargo."
 
 [dependencies]
 anyhow.workspace = true
+camino.workspace = true
 filetime.workspace = true
 hex.workspace = true
 ignore.workspace = true

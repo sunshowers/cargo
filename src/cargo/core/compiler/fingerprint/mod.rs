@@ -360,12 +360,13 @@ use std::collections::hash_map::{Entry, HashMap};
 use std::env;
 use std::hash::{self, Hash, Hasher};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use anyhow::{bail, format_err, Context as _};
+use anyhow::{bail, Context as _};
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util::{paths, ProcessBuilder};
 use filetime::FileTime;
 use serde::de;
@@ -412,7 +413,7 @@ pub fn prepare_target(
     let bcx = build_runner.bcx;
     let loc = build_runner.files().fingerprint_file_path(unit, "");
 
-    debug!("fingerprint at: {}", loc.display());
+    debug!("fingerprint at: {}", loc);
 
     // Figure out if this unit is up to date. After calculating the fingerprint
     // compare it to an old version, if any, and attempt to print diagnostic
@@ -609,7 +610,7 @@ pub struct Fingerprint {
     /// fingerprint is out of date if this is missing, or if previous
     /// fingerprints output files are regenerated and look newer than this one.
     #[serde(skip)]
-    outputs: Vec<PathBuf>,
+    outputs: Vec<Utf8PathBuf>,
 }
 
 /// Indication of the status on the filesystem for a particular unit.
@@ -637,7 +638,9 @@ pub enum FsStatus {
 
     /// This unit is up-to-date. All outputs and their corresponding mtime are
     /// listed in the payload here for other dependencies to compare against.
-    UpToDate { mtimes: HashMap<PathBuf, FileTime> },
+    UpToDate {
+        mtimes: HashMap<Utf8PathBuf, FileTime>,
+    },
 }
 
 impl FsStatus {
@@ -725,7 +728,7 @@ enum LocalFingerprint {
     /// The `dep_info` file, when present, also lists a number of other files
     /// for us to look at. If any of those files are newer than this file then
     /// we need to recompile.
-    CheckDepInfo { dep_info: PathBuf },
+    CheckDepInfo { dep_info: Utf8PathBuf },
 
     /// This represents a nonempty set of `rerun-if-changed` annotations printed
     /// out by a build script. The `output` file is a relative file anchored at
@@ -737,8 +740,8 @@ enum LocalFingerprint {
     /// This is considered up-to-date if all of the `paths` are older than
     /// `output`, otherwise we need to recompile.
     RerunIfChanged {
-        output: PathBuf,
-        paths: Vec<PathBuf>,
+        output: Utf8PathBuf,
+        paths: Vec<Utf8PathBuf>,
     },
 
     /// This represents a single `rerun-if-env-changed` annotation printed by a
@@ -751,11 +754,11 @@ enum LocalFingerprint {
 /// See [`FsStatus::StaleItem`].
 #[derive(Clone, Debug)]
 pub enum StaleItem {
-    MissingFile(PathBuf),
+    MissingFile(Utf8PathBuf),
     ChangedFile {
-        reference: PathBuf,
+        reference: Utf8PathBuf,
         reference_mtime: FileTime,
-        stale: PathBuf,
+        stale: Utf8PathBuf,
         stale_mtime: FileTime,
     },
     ChangedEnv {
@@ -792,10 +795,10 @@ impl LocalFingerprint {
     ///   is where we'll find whether files have actually changed
     fn find_stale_item(
         &self,
-        mtime_cache: &mut HashMap<PathBuf, FileTime>,
-        pkg_root: &Path,
-        target_root: &Path,
-        cargo_exe: &Path,
+        mtime_cache: &mut HashMap<Utf8PathBuf, FileTime>,
+        pkg_root: &Utf8Path,
+        target_root: &Utf8Path,
+        cargo_exe: &Utf8Path,
         gctx: &GlobalContext,
     ) -> CargoResult<Option<StaleItem>> {
         match self {
@@ -812,17 +815,7 @@ impl LocalFingerprint {
                 };
                 for (key, previous) in info.env.iter() {
                     let current = if key == CARGO_ENV {
-                        Some(
-                            cargo_exe
-                                .to_str()
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "cargo exe path {} must be valid UTF-8",
-                                        cargo_exe.display()
-                                    )
-                                })?
-                                .to_string(),
-                        )
+                        Some(cargo_exe.to_string())
                     } else {
                         gctx.get_env(key).ok()
                     };
@@ -1076,10 +1069,10 @@ impl Fingerprint {
     /// it to `UpToDate` if it can.
     fn check_filesystem(
         &mut self,
-        mtime_cache: &mut HashMap<PathBuf, FileTime>,
-        pkg_root: &Path,
-        target_root: &Path,
-        cargo_exe: &Path,
+        mtime_cache: &mut HashMap<Utf8PathBuf, FileTime>,
+        pkg_root: &Utf8Path,
+        target_root: &Utf8Path,
+        cargo_exe: &Utf8Path,
         gctx: &GlobalContext,
     ) -> CargoResult<()> {
         assert!(!self.fs_status.up_to_date());
@@ -1136,9 +1129,7 @@ impl Fingerprint {
             let (dep_path, dep_mtime) = if dep.only_requires_rmeta {
                 dep_mtimes
                     .iter()
-                    .find(|(path, _mtime)| {
-                        path.extension().and_then(|s| s.to_str()) == Some("rmeta")
-                    })
+                    .find(|(path, _mtime)| path.extension() == Some("rmeta"))
                     .expect("failed to find rmeta")
             } else {
                 match dep_mtimes.iter().max_by_key(|kv| kv.1) {
@@ -1693,8 +1684,8 @@ fn build_script_override_fingerprint(
 /// [`RunCustomBuild`]: crate::core::compiler::CompileMode::RunCustomBuild
 fn local_fingerprints_deps(
     deps: &BuildDeps,
-    target_root: &Path,
-    pkg_root: &Path,
+    target_root: &Utf8Path,
+    pkg_root: &Utf8Path,
 ) -> Vec<LocalFingerprint> {
     debug!("new local fingerprints deps {:?}", pkg_root);
     let mut local = Vec::new();
@@ -1727,13 +1718,13 @@ fn local_fingerprints_deps(
 
 /// Writes the short fingerprint hash value to `<loc>`
 /// and logs detailed JSON information to `<loc>.json`.
-fn write_fingerprint(loc: &Path, fingerprint: &Fingerprint) -> CargoResult<()> {
+fn write_fingerprint(loc: &Utf8Path, fingerprint: &Fingerprint) -> CargoResult<()> {
     debug_assert_ne!(fingerprint.rustc, 0);
     // fingerprint::new().rustc == 0, make sure it doesn't make it to the file system.
     // This is mostly so outside tools can reliably find out what rust version this file is for,
     // as we can use the full hash.
     let hash = fingerprint.hash_u64();
-    debug!("write fingerprint ({:x}) : {}", hash, loc.display());
+    debug!("write fingerprint ({:x}) : {}", hash, loc);
     paths::write(loc, util::to_hex(hash).as_bytes())?;
 
     let json = serde_json::to_string(fingerprint).unwrap();
@@ -1759,13 +1750,13 @@ pub fn prepare_init(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> Carg
 
 /// Returns the location that the dep-info file will show up at
 /// for the [`Unit`] specified.
-pub fn dep_info_loc(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> PathBuf {
+pub fn dep_info_loc(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> Utf8PathBuf {
     build_runner.files().fingerprint_file_path(unit, "dep-")
 }
 
 /// Returns an absolute path that target directory.
 /// All paths are rewritten to be relative to this.
-fn target_root(build_runner: &BuildRunner<'_, '_>) -> PathBuf {
+fn target_root(build_runner: &BuildRunner<'_, '_>) -> Utf8PathBuf {
     build_runner.bcx.ws.target_dir().into_path_unlocked()
 }
 
@@ -1775,7 +1766,7 @@ fn target_root(build_runner: &BuildRunner<'_, '_>) -> PathBuf {
 /// from the fingerprint JSON file, and provides an rich dirty reason.
 fn compare_old_fingerprint(
     unit: &Unit,
-    old_hash_path: &Path,
+    old_hash_path: &Utf8Path,
     new_fingerprint: &Fingerprint,
     mtime_on_use: bool,
     forced: bool,
@@ -1815,10 +1806,10 @@ fn compare_old_fingerprint(
 }
 
 fn _compare_old_fingerprint(
-    old_hash_path: &Path,
+    old_hash_path: &Utf8Path,
     new_fingerprint: &Fingerprint,
 ) -> CargoResult<Option<DirtyReason>> {
-    let old_fingerprint_short = paths::read(old_hash_path)?;
+    let old_fingerprint_short = paths::read(old_hash_path.as_std_path())?;
 
     let new_hash = new_fingerprint.hash_u64();
 
@@ -1826,7 +1817,7 @@ fn _compare_old_fingerprint(
         return Ok(None);
     }
 
-    let old_fingerprint_json = paths::read(&old_hash_path.with_extension("json"))?;
+    let old_fingerprint_json = paths::read(old_hash_path.with_extension("json").as_std_path())?;
     let old_fingerprint: Fingerprint = serde_json::from_str(&old_fingerprint_json)
         .with_context(|| internal("failed to deserialize json"))?;
     // Fingerprint can be empty after a failed rebuild (see comment in prepare_target).
@@ -1852,11 +1843,11 @@ fn _compare_old_fingerprint(
 /// Returns `None` if the file is corrupt or couldn't be read from disk. This
 /// indicates that the crate should likely be rebuilt.
 pub fn parse_dep_info(
-    pkg_root: &Path,
-    target_root: &Path,
-    dep_info: &Path,
+    pkg_root: &Utf8Path,
+    target_root: &Utf8Path,
+    dep_info: &Utf8Path,
 ) -> CargoResult<Option<RustcDepInfo>> {
-    let Ok(data) = paths::read_bytes(dep_info) else {
+    let Ok(data) = paths::read_bytes(dep_info.as_std_path()) else {
         return Ok(None);
     };
     let Some(info) = EncodedDepInfo::parse(&data) else {
@@ -1888,13 +1879,13 @@ fn pkg_fingerprint(bcx: &BuildContext<'_, '_>, pkg: &Package) -> CargoResult<Str
 
 /// The `reference` file is considered as "stale" if any file from `paths` has a newer mtime.
 fn find_stale_file<I>(
-    mtime_cache: &mut HashMap<PathBuf, FileTime>,
-    reference: &Path,
+    mtime_cache: &mut HashMap<Utf8PathBuf, FileTime>,
+    reference: &Utf8Path,
     paths: I,
 ) -> Option<StaleItem>
 where
     I: IntoIterator,
-    I::Item: AsRef<Path>,
+    I::Item: AsRef<Utf8Path>,
 {
     let Ok(reference_mtime) = paths::mtime(reference) else {
         return Some(StaleItem::MissingFile(reference.to_path_buf()));
@@ -1925,7 +1916,7 @@ where
         let path_mtime = match mtime_cache.entry(path.to_path_buf()) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                let Ok(mtime) = paths::mtime_recursive(path) else {
+                let Ok(mtime) = paths::mtime_recursive(path.as_std_path()) else {
                     return Some(StaleItem::MissingFile(path.to_path_buf()));
                 };
                 *v.insert(mtime)
@@ -2003,11 +1994,11 @@ enum DepInfoPathType {
 /// The serialized Cargo format will contain a list of files, all of which are
 /// relative if they're under `root`. or absolute if they're elsewhere.
 pub fn translate_dep_info(
-    rustc_dep_info: &Path,
-    cargo_dep_info: &Path,
-    rustc_cwd: &Path,
-    pkg_root: &Path,
-    target_root: &Path,
+    rustc_dep_info: &Utf8Path,
+    cargo_dep_info: &Utf8Path,
+    rustc_cwd: &Utf8Path,
+    pkg_root: &Utf8Path,
+    target_root: &Utf8Path,
     rustc_cmd: &ProcessBuilder,
     allow_package: bool,
 ) -> CargoResult<()> {
@@ -2082,7 +2073,7 @@ pub fn translate_dep_info(
 #[derive(Default)]
 pub struct RustcDepInfo {
     /// The list of files that the main target in the dep-info file depends on.
-    pub files: Vec<PathBuf>,
+    pub files: Vec<Utf8PathBuf>,
     /// The list of environment variables we found that the rustc compilation
     /// depends on.
     ///
@@ -2100,7 +2091,7 @@ pub struct RustcDepInfo {
 /// Cargo will read it for crates on all future compilations.
 #[derive(Default)]
 struct EncodedDepInfo {
-    files: Vec<(DepInfoPathType, PathBuf)>,
+    files: Vec<(DepInfoPathType, Utf8PathBuf)>,
     env: Vec<(String, Option<String>)>,
 }
 
@@ -2161,7 +2152,7 @@ impl EncodedDepInfo {
                 DepInfoPathType::PackageRootRelative => dst.push(0),
                 DepInfoPathType::TargetRootRelative => dst.push(1),
             }
-            write_bytes(dst, paths::path2bytes(file)?);
+            write_bytes(dst, paths::path2bytes(file));
         }
 
         write_usize(dst, self.env.len());
@@ -2190,8 +2181,8 @@ impl EncodedDepInfo {
 }
 
 /// Parse the `.d` dep-info file generated by rustc.
-pub fn parse_rustc_dep_info(rustc_dep_info: &Path) -> CargoResult<RustcDepInfo> {
-    let contents = paths::read(rustc_dep_info)?;
+pub fn parse_rustc_dep_info(rustc_dep_info: &Utf8Path) -> CargoResult<RustcDepInfo> {
+    let contents = paths::read(rustc_dep_info.as_std_path())?;
     let mut ret = RustcDepInfo::default();
     let mut found_deps = false;
 

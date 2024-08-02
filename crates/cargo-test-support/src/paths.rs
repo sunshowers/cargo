@@ -1,12 +1,14 @@
 //! Access common paths and manipulate the filesystem
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use filetime::FileTime;
 
 use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -14,12 +16,12 @@ use std::sync::OnceLock;
 
 static CARGO_INTEGRATION_TEST_DIR: &str = "cit";
 
-static GLOBAL_ROOT: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+static GLOBAL_ROOT: OnceLock<Mutex<Option<Utf8PathBuf>>> = OnceLock::new();
 
 /// This is used when running cargo is pre-CARGO_TARGET_TMPDIR
 /// TODO: Remove when CARGO_TARGET_TMPDIR grows old enough.
-fn global_root_legacy() -> PathBuf {
-    let mut path = t!(env::current_exe());
+fn global_root_legacy() -> Utf8PathBuf {
+    let mut path = t!(Utf8PathBuf::try_from(t!(env::current_exe())));
     path.pop(); // chop off exe name
     path.pop(); // chop off "deps"
     path.push("tmp");
@@ -34,7 +36,7 @@ fn set_global_root(tmp_dir: Option<&'static str>) {
         .unwrap();
     if lock.is_none() {
         let mut root = match tmp_dir {
-            Some(tmp_dir) => PathBuf::from(tmp_dir),
+            Some(tmp_dir) => Utf8PathBuf::from(tmp_dir),
             None => global_root_legacy(),
         };
 
@@ -46,7 +48,7 @@ fn set_global_root(tmp_dir: Option<&'static str>) {
 /// Path to the parent directory of all test [`root`]s
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit`
-pub fn global_root() -> PathBuf {
+pub fn global_root() -> Utf8PathBuf {
     let lock = GLOBAL_ROOT
         .get_or_init(|| Default::default())
         .lock()
@@ -100,7 +102,7 @@ impl Drop for TestIdGuard {
 /// Path to the test's filesystem scratchpad
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0`
-pub fn root() -> PathBuf {
+pub fn root() -> Utf8PathBuf {
     let id = TEST_ID.with(|n| {
         n.borrow().expect(
             "Tests must use the `#[cargo_test]` attribute in \
@@ -116,7 +118,7 @@ pub fn root() -> PathBuf {
 /// Path to the current test's `$HOME`
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/home`
-pub fn home() -> PathBuf {
+pub fn home() -> Utf8PathBuf {
     let mut path = root();
     path.push("home");
     path.mkdir_p();
@@ -126,7 +128,7 @@ pub fn home() -> PathBuf {
 /// Path to the current test's `$CARGO_HOME`
 ///
 /// ex: `$CARGO_TARGET_TMPDIR/cit/t0/home/.cargo`
-pub fn cargo_home() -> PathBuf {
+pub fn cargo_home() -> Utf8PathBuf {
     home().join(".cargo")
 }
 
@@ -154,7 +156,7 @@ pub trait CargoPathExt {
         F: Fn(i64, u32) -> (i64, u32);
 }
 
-impl CargoPathExt for Path {
+impl CargoPathExt for Utf8Path {
     fn to_url(&self) -> url::Url {
         url::Url::from_file_path(self).ok().unwrap()
     }
@@ -182,8 +184,7 @@ impl CargoPathExt for Path {
     }
 
     fn mkdir_p(&self) {
-        fs::create_dir_all(self)
-            .unwrap_or_else(|e| panic!("failed to mkdir_p {}: {}", self.display(), e))
+        fs::create_dir_all(self).unwrap_or_else(|e| panic!("failed to mkdir_p {}: {}", self, e))
     }
 
     fn ls_r(&self) -> Vec<PathBuf> {
@@ -204,21 +205,21 @@ impl CargoPathExt for Path {
             recurse(self, &self.join("target"), &travel_amount);
         }
 
-        fn recurse<F>(p: &Path, bad: &Path, travel_amount: &F)
+        fn recurse<F>(p: &Utf8Path, bad: &Utf8Path, travel_amount: &F)
         where
             F: Fn(i64, u32) -> (i64, u32),
         {
             if p.is_file() {
                 time_travel(p, travel_amount)
             } else if !p.starts_with(bad) {
-                for f in t!(fs::read_dir(p)) {
-                    let f = t!(f).path();
+                for f in t!(p.read_dir_utf8()) {
+                    let f = t!(f).into_path();
                     recurse(&f, bad, travel_amount);
                 }
             }
         }
 
-        fn time_travel<F>(path: &Path, travel_amount: &F)
+        fn time_travel<F>(path: &Utf8Path, travel_amount: &F)
         where
             F: Fn(i64, u32) -> (i64, u32),
         {
@@ -238,7 +239,7 @@ impl CargoPathExt for Path {
     }
 }
 
-impl CargoPathExt for PathBuf {
+impl CargoPathExt for Utf8PathBuf {
     fn to_url(&self) -> url::Url {
         self.as_path().to_url()
     }
@@ -262,9 +263,9 @@ impl CargoPathExt for PathBuf {
     }
 }
 
-fn do_op<F>(path: &Path, desc: &str, mut f: F)
+fn do_op<F>(path: &Utf8Path, desc: &str, mut f: F)
 where
-    F: FnMut(&Path) -> io::Result<()>,
+    F: FnMut(&Utf8Path) -> io::Result<()>,
 {
     match f(path) {
         Ok(()) => {}
@@ -281,11 +282,11 @@ where
             t!(fs::set_permissions(parent, p));
 
             f(path).unwrap_or_else(|e| {
-                panic!("failed to {} {}: {}", desc, path.display(), e);
+                panic!("failed to {} {}: {}", desc, path, e);
             })
         }
         Err(e) => {
-            panic!("failed to {} {}: {}", desc, path.display(), e);
+            panic!("failed to {} {}: {}", desc, path, e);
         }
     }
 }

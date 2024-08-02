@@ -81,6 +81,7 @@ use crate::util::try_canonicalize;
 use crate::util::{internal, CanonicalUrl};
 use crate::util::{Filesystem, IntoUrl, IntoUrlWithBase, Rustc};
 use anyhow::{anyhow, bail, format_err, Context as _};
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_credential::Secret;
 use cargo_util::paths;
 use cargo_util_schemas::manifest::RegistryName;
@@ -174,13 +175,13 @@ pub struct GlobalContext {
     /// CLI config values, passed in via `configure`.
     cli_config: Option<Vec<String>>,
     /// The current working directory of cargo
-    cwd: PathBuf,
+    cwd: Utf8PathBuf,
     /// Directory where config file searching should stop (inclusive).
-    search_stop_path: Option<PathBuf>,
+    search_stop_path: Option<Utf8PathBuf>,
     /// The location of the cargo executable (path to current process)
-    cargo_exe: LazyCell<PathBuf>,
+    cargo_exe: LazyCell<Utf8PathBuf>,
     /// The location of the rustdoc executable
-    rustdoc: LazyCell<PathBuf>,
+    rustdoc: LazyCell<Utf8PathBuf>,
     /// Whether we are printing extra verbose messages
     extra_verbose: bool,
     /// `frozen` is the same as `locked`, but additionally will not access the
@@ -245,7 +246,7 @@ pub struct GlobalContext {
     /// consider using `ConfigBuilder::enable_nightly_features` instead.
     pub nightly_features_allowed: bool,
     /// WorkspaceRootConfigs that have been found
-    pub ws_roots: RefCell<HashMap<PathBuf, WorkspaceRootConfig>>,
+    pub ws_roots: RefCell<HashMap<Utf8PathBuf, WorkspaceRootConfig>>,
     /// The global cache tracker is a database used to track disk cache usage.
     global_cache_tracker: LazyCell<RefCell<GlobalCacheTracker>>,
     /// A cache of modifications to make to [`GlobalContext::global_cache_tracker`],
@@ -261,7 +262,7 @@ impl GlobalContext {
     ///
     /// This does only minimal initialization. In particular, it does not load
     /// any config files from disk. Those will be loaded lazily as-needed.
-    pub fn new(shell: Shell, cwd: PathBuf, homedir: PathBuf) -> GlobalContext {
+    pub fn new(shell: Shell, cwd: Utf8PathBuf, homedir: Utf8PathBuf) -> GlobalContext {
         static mut GLOBAL_JOBSERVER: *mut jobserver::Client = 0 as *mut _;
         static INIT: Once = Once::new();
 
@@ -335,8 +336,11 @@ impl GlobalContext {
     /// any config files from disk. Those will be loaded lazily as-needed.
     pub fn default() -> CargoResult<GlobalContext> {
         let shell = Shell::new();
-        let cwd = env::current_dir()
-            .with_context(|| "couldn't get the current directory of the process")?;
+        let cwd = Utf8PathBuf::try_from(
+            env::current_dir()
+                .with_context(|| "couldn't get the current directory of the process")?,
+        )
+        .context("current directory is not a valid UTF-8 path")?;
         let homedir = homedir(&cwd).ok_or_else(|| {
             anyhow!(
                 "Cargo couldn't find your home directory. \
@@ -452,23 +456,23 @@ impl GlobalContext {
     }
 
     /// Gets the path to the `cargo` executable.
-    pub fn cargo_exe(&self) -> CargoResult<&Path> {
+    pub fn cargo_exe(&self) -> CargoResult<&Utf8Path> {
         self.cargo_exe
             .try_borrow_with(|| {
-                let from_env = || -> CargoResult<PathBuf> {
+                let from_env = || -> CargoResult<Utf8PathBuf> {
                     // Try re-using the `cargo` set in the environment already. This allows
                     // commands that use Cargo as a library to inherit (via `cargo <subcommand>`)
                     // or set (by setting `$CARGO`) a correct path to `cargo` when the current exe
                     // is not actually cargo (e.g., `cargo-*` binaries, Valgrind, `ld.so`, etc.).
                     let exe = try_canonicalize(
                         self.get_env_os(crate::CARGO_ENV)
-                            .map(PathBuf::from)
+                            .map(Utf8PathBuf::from)
                             .ok_or_else(|| anyhow!("$CARGO not set"))?,
                     )?;
                     Ok(exe)
                 };
 
-                fn from_current_exe() -> CargoResult<PathBuf> {
+                fn from_current_exe() -> CargoResult<Utf8PathBuf> {
                     // Try fetching the path to `cargo` using `env::current_exe()`.
                     // The method varies per operating system and might fail; in particular,
                     // it depends on `/proc` being mounted on Linux, and some environments
@@ -477,7 +481,7 @@ impl GlobalContext {
                     Ok(exe)
                 }
 
-                fn from_argv() -> CargoResult<PathBuf> {
+                fn from_argv() -> CargoResult<Utf8PathBuf> {
                     // Grab `argv[0]` and attempt to resolve it to an absolute path.
                     // If `argv[0]` has one component, it must have come from a `PATH` lookup,
                     // so probe `PATH` in that case.
@@ -487,9 +491,12 @@ impl GlobalContext {
                     // In either case, `Path::canonicalize` will return the full absolute path
                     // to the target if it exists.
                     let argv0 = env::args_os()
-                        .map(PathBuf::from)
+                        .map(|arg| {
+                            Utf8PathBuf::try_from(PathBuf::from(arg))
+                                .context("argv[0] is not UTF-8")
+                        })
                         .next()
-                        .ok_or_else(|| anyhow!("no argv[0]"))?;
+                        .ok_or_else(|| anyhow!("no argv[0]"))??;
                     paths::resolve_executable(&argv0)
                 }
 
@@ -559,7 +566,7 @@ impl GlobalContext {
 
     /// Sets the path where ancestor config file searching will stop. The
     /// given path is included, but its ancestors are not.
-    pub fn set_search_stop_path<P: Into<PathBuf>>(&mut self, path: P) {
+    pub fn set_search_stop_path<P: Into<Utf8PathBuf>>(&mut self, path: P) {
         let path = path.into();
         debug_assert!(self.cwd.starts_with(&path));
         self.search_stop_path = Some(path);
@@ -569,8 +576,11 @@ impl GlobalContext {
     ///
     /// There is not a need to also call [`Self::reload_rooted_at`].
     pub fn reload_cwd(&mut self) -> CargoResult<()> {
-        let cwd = env::current_dir()
-            .with_context(|| "couldn't get the current directory of the process")?;
+        let cwd = Utf8PathBuf::try_from(
+            env::current_dir()
+                .with_context(|| "couldn't get the current directory of the process")?,
+        )
+        .context("current directory is not a valid UTF-8 path")?;
         let homedir = homedir(&cwd).ok_or_else(|| {
             anyhow!(
                 "Cargo couldn't find your home directory. \
@@ -595,7 +605,7 @@ impl GlobalContext {
     }
 
     /// The current working directory.
-    pub fn cwd(&self) -> &Path {
+    pub fn cwd(&self) -> &Utf8Path {
         &self.cwd
     }
 
@@ -615,8 +625,16 @@ impl GlobalContext {
                      `CARGO_TARGET_DIR` environment variable"
                 )
             }
+            let dir = PathBuf::from(dir);
 
-            Ok(Some(Filesystem::new(self.cwd.join(dir))))
+            Ok(Some(Filesystem::new(self.cwd.join(
+                Utf8PathBuf::try_from(dir).with_context(|| {
+                    format!(
+                        "CARGO_TARGET_DIR environment variable is not a valid UTF-8 path: {}",
+                        dir.display()
+                    )
+                })?,
+            ))))
         } else if let Some(val) = &self.build_config()?.target_dir {
             let path = val.resolve_path(self);
 
@@ -659,7 +677,7 @@ impl GlobalContext {
             // with no key). The definition here shouldn't matter.
             return Ok(Some(CV::Table(
                 vals.clone(),
-                Definition::Path(PathBuf::new()),
+                Definition::Path(Utf8PathBuf::new()),
             )));
         }
         let mut parts = key.parts().enumerate();
@@ -870,7 +888,7 @@ impl GlobalContext {
     /// This returns a relative path if the value does not contain any
     /// directory separators. See `ConfigRelativePath::resolve_program` for
     /// more details.
-    pub fn get_path(&self, key: &str) -> CargoResult<OptValue<PathBuf>> {
+    pub fn get_path(&self, key: &str) -> CargoResult<OptValue<Utf8PathBuf>> {
         self.get::<OptValue<ConfigRelativePath>>(key).map(|v| {
             v.map(|v| Value {
                 val: v.val.resolve_program(self),
@@ -879,13 +897,13 @@ impl GlobalContext {
         })
     }
 
-    fn string_to_path(&self, value: &str, definition: &Definition) -> PathBuf {
+    fn string_to_path(&self, value: &str, definition: &Definition) -> Utf8PathBuf {
         let is_path = value.contains('/') || (cfg!(windows) && value.contains('\\'));
         if is_path {
             definition.root(self).join(value)
         } else {
             // A pathless name.
-            PathBuf::from(value)
+            Utf8PathBuf::from(value)
         }
     }
 
@@ -1016,7 +1034,7 @@ impl GlobalContext {
         frozen: bool,
         locked: bool,
         offline: bool,
-        target_dir: &Option<PathBuf>,
+        target_dir: &Option<Utf8PathBuf>,
         unstable_flags: &[String],
         cli_config: &[String],
     ) -> CargoResult<()> {
@@ -1176,7 +1194,7 @@ impl GlobalContext {
     fn load_unmerged_include(
         &self,
         cv: &mut CV,
-        seen: &mut HashSet<PathBuf>,
+        seen: &mut HashSet<Utf8PathBuf>,
         output: &mut Vec<CV>,
     ) -> CargoResult<()> {
         let includes = self.include_paths(cv, false)?;
@@ -1196,7 +1214,7 @@ impl GlobalContext {
     fn load_values_from(&self, path: &Path) -> CargoResult<HashMap<String, ConfigValue>> {
         // This definition path is ignored, this is just a temporary container
         // representing the entire file.
-        let mut cfg = CV::Table(HashMap::new(), Definition::Path(PathBuf::from(".")));
+        let mut cfg = CV::Table(HashMap::new(), Definition::Path(Utf8PathBuf::from(".")));
         let home = self.home_path.clone().into_path_unlocked();
 
         self.walk_tree(path, &home, |path| {
@@ -1233,7 +1251,7 @@ impl GlobalContext {
     fn _load_file(
         &self,
         path: &Path,
-        seen: &mut HashSet<PathBuf>,
+        seen: &mut HashSet<Utf8PathBuf>,
         includes: bool,
         why_load: WhyLoad,
     ) -> CargoResult<ConfigValue> {
@@ -1276,7 +1294,7 @@ impl GlobalContext {
     fn load_includes(
         &self,
         mut value: CV,
-        seen: &mut HashSet<PathBuf>,
+        seen: &mut HashSet<Utf8PathBuf>,
         why_load: WhyLoad,
     ) -> CargoResult<CV> {
         // Get the list of files to load.
@@ -1303,8 +1321,8 @@ impl GlobalContext {
         &self,
         cv: &mut CV,
         remove: bool,
-    ) -> CargoResult<Vec<(String, PathBuf, Definition)>> {
-        let abs = |path: &str, def: &Definition| -> (String, PathBuf, Definition) {
+    ) -> CargoResult<Vec<(String, Utf8PathBuf, Definition)>> {
+        let abs = |path: &str, def: &Definition| -> (String, Utf8PathBuf, Definition) {
             let abs_path = match def {
                 Definition::Path(p) | Definition::Cli(Some(p)) => p.parent().unwrap().join(&path),
                 Definition::Environment(_) | Definition::Cli(None) => self.cwd().join(&path),
@@ -1536,7 +1554,7 @@ impl GlobalContext {
         dir: &Path,
         filename_without_extension: &str,
         warn: bool,
-    ) -> CargoResult<Option<PathBuf>> {
+    ) -> CargoResult<Option<Utf8PathBuf>> {
         let possible = dir.join(filename_without_extension);
         let possible_with_extension = dir.join(format!("{}.toml", filename_without_extension));
 
@@ -1581,7 +1599,7 @@ impl GlobalContext {
     where
         F: FnMut(&Path) -> CargoResult<()>,
     {
-        let mut stash: HashSet<PathBuf> = HashSet::new();
+        let mut stash: HashSet<Utf8PathBuf> = HashSet::new();
 
         for current in paths::ancestors(pwd, self.search_stop_path.as_deref()) {
             if let Some(path) = self.get_file_path(&current.join(".cargo"), "config", true)? {
@@ -1706,7 +1724,7 @@ impl GlobalContext {
         &self,
         tool: &str,
         from_config: &Option<ConfigRelativePath>,
-    ) -> Option<PathBuf> {
+    ) -> Option<Utf8PathBuf> {
         let var = tool.to_uppercase();
 
         match self.get_env_os(&var).as_ref().and_then(|s| s.to_str()) {
@@ -1715,7 +1733,7 @@ impl GlobalContext {
                 let path = if maybe_relative {
                     self.cwd.join(tool_path)
                 } else {
-                    PathBuf::from(tool_path)
+                    Utf8PathBuf::from(tool_path)
                 };
                 Some(path)
             }
@@ -1734,7 +1752,7 @@ impl GlobalContext {
     ///
     /// This is intended for tools that are rustup proxies. If you need to get
     /// a tool that is not a rustup proxy, use `maybe_get_tool` instead.
-    fn get_tool(&self, tool: Tool, from_config: &Option<ConfigRelativePath>) -> PathBuf {
+    fn get_tool(&self, tool: Tool, from_config: &Option<ConfigRelativePath>) -> Utf8PathBuf {
         let tool_str = tool.as_str();
         self.maybe_get_tool(tool_str, from_config)
             .or_else(|| {
@@ -1780,7 +1798,7 @@ impl GlobalContext {
                     .join(&tool_exe);
                 toolchain_exe.exists().then_some(toolchain_exe)
             })
-            .unwrap_or_else(|| PathBuf::from(tool_str))
+            .unwrap_or_else(|| Utf8PathBuf::from(tool_str))
     }
 
     pub fn jobserver_from_env(&self) -> Option<&jobserver::Client> {
@@ -2321,7 +2339,7 @@ impl ConfigValue {
     }
 }
 
-pub fn homedir(cwd: &Path) -> Option<PathBuf> {
+pub fn homedir(cwd: &Utf8Path) -> Option<Utf8PathBuf> {
     ::home::cargo_home_with_cwd(cwd).ok()
 }
 
@@ -2969,6 +2987,8 @@ fn disables_multiplexing_for_bad_curl(
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8PathBuf;
+
     use super::disables_multiplexing_for_bad_curl;
     use super::CargoHttpConfig;
     use super::GlobalContext;
@@ -2977,7 +2997,7 @@ mod tests {
     #[test]
     fn disables_multiplexing() {
         let mut gctx = GlobalContext::new(Shell::new(), "".into(), "".into());
-        gctx.set_search_stop_path(std::path::PathBuf::new());
+        gctx.set_search_stop_path(Utf8PathBuf::new());
         gctx.set_env(Default::default());
 
         let mut http = CargoHttpConfig::default();

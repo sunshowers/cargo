@@ -45,9 +45,9 @@ use crate::cross_compile::try_alternate;
 use crate::paths;
 use crate::{diff, rustc_host};
 use anyhow::{bail, Context, Result};
+use camino::Utf8Path;
 use serde_json::Value;
 use std::fmt;
-use std::path::Path;
 use std::str;
 use url::Url;
 
@@ -179,7 +179,7 @@ fn add_test_support_redactions(subs: &mut snapbox::Redactions) {
     // put in the users output, rather than hidden in the variable
     let root_url = url::Url::from_file_path(&root).unwrap().to_string();
 
-    subs.insert("[ROOT]", root).unwrap();
+    subs.insert("[ROOT]", root.into_std_path_buf()).unwrap();
     subs.insert("[ROOTURL]", root_url).unwrap();
     subs.insert("[HOST_TARGET]", rustc_host()).unwrap();
     if let Some(alt_target) = try_alternate() {
@@ -331,7 +331,7 @@ static E2E_LITERAL_REDACTIONS: &[(&str, &str)] = &[
 ];
 
 /// Normalizes the output so that it can be compared against the expected value.
-fn normalize_actual(actual: &str, cwd: Option<&Path>) -> String {
+fn normalize_actual(actual: &str, cwd: Option<&Utf8Path>) -> String {
     // It's easier to read tabs in outputs if they don't show up as literal
     // hidden characters
     let actual = actual.replace('\t', "<tab>");
@@ -345,7 +345,7 @@ fn normalize_actual(actual: &str, cwd: Option<&Path>) -> String {
 }
 
 /// Normalizes the expected string so that it can be compared against the actual output.
-fn normalize_expected(expected: &str, cwd: Option<&Path>) -> String {
+fn normalize_expected(expected: &str, cwd: Option<&Utf8Path>) -> String {
     let expected = replace_dirty_msvc(expected);
     let expected = substitute_macros(&expected);
 
@@ -354,9 +354,9 @@ fn normalize_expected(expected: &str, cwd: Option<&Path>) -> String {
     } else {
         let expected = match cwd {
             None => expected,
-            Some(cwd) => expected.replace("[CWD]", &cwd.display().to_string()),
+            Some(cwd) => expected.replace("[CWD]", &cwd.to_string()),
         };
-        let expected = expected.replace("[ROOT]", &paths::root().display().to_string());
+        let expected = expected.replace("[ROOT]", &paths::root().to_string());
         expected
     }
 }
@@ -385,7 +385,7 @@ fn replace_dirty_msvc(s: &str) -> String {
 }
 
 /// Normalizes text for both actual and expected strings on Windows.
-fn normalize_windows(text: &str, cwd: Option<&Path>) -> String {
+fn normalize_windows(text: &str, cwd: Option<&Utf8Path>) -> String {
     // Let's not deal with / vs \ (windows...)
     let text = text.replace('\\', "/");
 
@@ -396,9 +396,9 @@ fn normalize_windows(text: &str, cwd: Option<&Path>) -> String {
     // which will auto-uppercase the drive name. To just ignore this
     // distinction we try to canonicalize as much as possible, taking all
     // forms of a path and canonicalizing them to one.
-    let replace_path = |s: &str, path: &Path, with: &str| {
+    let replace_path = |s: &str, path: &Utf8Path, with: &str| {
         let path_through_url = Url::from_file_path(path).unwrap().to_file_path().unwrap();
-        let path1 = path.display().to_string().replace('\\', "/");
+        let path1 = path.to_string().replace('\\', "/");
         let path2 = path_through_url.display().to_string().replace('\\', "/");
         s.replace(&path1, with)
             .replace(&path2, with)
@@ -440,7 +440,7 @@ pub(crate) fn match_exact(
     actual: &str,
     description: &str,
     other_output: &str,
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Result<()> {
     let expected = normalize_expected(expected, cwd);
     let actual = normalize_actual(actual, cwd);
@@ -473,7 +473,7 @@ pub(crate) fn assert_match_exact(expected: &str, actual: &str) {
 /// of the lines.
 ///
 /// See [Patterns](index.html#patterns) for more information on pattern matching.
-pub(crate) fn match_unordered(expected: &str, actual: &str, cwd: Option<&Path>) -> Result<()> {
+pub(crate) fn match_unordered(expected: &str, actual: &str, cwd: Option<&Utf8Path>) -> Result<()> {
     let expected = normalize_expected(expected, cwd);
     let actual = normalize_actual(actual, cwd);
     let e: Vec<_> = expected.lines().map(|line| WildStr::new(line)).collect();
@@ -523,7 +523,7 @@ pub(crate) fn match_unordered(expected: &str, actual: &str, cwd: Option<&Path>) 
 /// somewhere.
 ///
 /// See [Patterns](index.html#patterns) for more information on pattern matching.
-pub(crate) fn match_contains(expected: &str, actual: &str, cwd: Option<&Path>) -> Result<()> {
+pub(crate) fn match_contains(expected: &str, actual: &str, cwd: Option<&Utf8Path>) -> Result<()> {
     let expected = normalize_expected(expected, cwd);
     let actual = normalize_actual(actual, cwd);
     let e: Vec<_> = expected.lines().map(|line| WildStr::new(line)).collect();
@@ -553,7 +553,7 @@ pub(crate) fn match_contains(expected: &str, actual: &str, cwd: Option<&Path>) -
 pub(crate) fn match_does_not_contain(
     expected: &str,
     actual: &str,
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Result<()> {
     if match_contains(expected, actual, cwd).is_ok() {
         bail!(
@@ -577,7 +577,7 @@ pub(crate) fn match_contains_n(
     expected: &str,
     number: usize,
     actual: &str,
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Result<()> {
     let expected = normalize_expected(expected, cwd);
     let actual = normalize_actual(actual, cwd);
@@ -614,7 +614,7 @@ pub(crate) fn match_with_without(
     actual: &str,
     with: &[String],
     without: &[String],
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Result<()> {
     let actual = normalize_actual(actual, cwd);
     let norm = |s: &String| format!("[..]{}[..]", normalize_expected(s, cwd));
@@ -658,7 +658,7 @@ pub(crate) fn match_with_without(
 /// expected JSON objects.
 ///
 /// See [`crate::Execs::with_json`] for more details.
-pub(crate) fn match_json(expected: &str, actual: &str, cwd: Option<&Path>) -> Result<()> {
+pub(crate) fn match_json(expected: &str, actual: &str, cwd: Option<&Utf8Path>) -> Result<()> {
     let (exp_objs, act_objs) = collect_json_objects(expected, actual)?;
     if exp_objs.len() != act_objs.len() {
         bail!(
@@ -682,7 +682,7 @@ pub(crate) fn match_json(expected: &str, actual: &str, cwd: Option<&Path>) -> Re
 pub(crate) fn match_json_contains_unordered(
     expected: &str,
     actual: &str,
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Result<()> {
     let (exp_objs, mut act_objs) = collect_json_objects(expected, actual)?;
     for exp_obj in exp_objs {
@@ -740,7 +740,7 @@ fn collect_json_objects(
 pub(crate) fn find_json_mismatch(
     expected: &Value,
     actual: &Value,
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Result<()> {
     match find_json_mismatch_r(expected, actual, cwd) {
         Some((expected_part, actual_part)) => bail!(
@@ -757,7 +757,7 @@ pub(crate) fn find_json_mismatch(
 fn find_json_mismatch_r<'a>(
     expected: &'a Value,
     actual: &'a Value,
-    cwd: Option<&Path>,
+    cwd: Option<&Utf8Path>,
 ) -> Option<(&'a Value, &'a Value)> {
     use serde_json::Value::*;
     match (expected, actual) {

@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use lazycell::LazyCell;
 use tracing::debug;
 
@@ -102,7 +102,7 @@ pub struct CompilationFiles<'a, 'gctx> {
     /// The target directory layout for the target (if different from then host).
     pub(super) target: HashMap<CompileTarget, Layout>,
     /// Additional directory to include a copy of the outputs.
-    export_dir: Option<PathBuf>,
+    export_dir: Option<Utf8PathBuf>,
     /// The root targets requested by the user on the command line (does not
     /// include dependencies).
     roots: Vec<Unit>,
@@ -117,19 +117,19 @@ pub struct CompilationFiles<'a, 'gctx> {
 #[derive(Debug)]
 pub struct OutputFile {
     /// Absolute path to the file that will be produced by the build process.
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     /// If it should be linked into `target`, and what it should be called
     /// (e.g., without metadata).
-    pub hardlink: Option<PathBuf>,
+    pub hardlink: Option<Utf8PathBuf>,
     /// If `--artifact-dir` is specified, the absolute path to the exported file.
-    pub export_path: Option<PathBuf>,
+    pub export_path: Option<Utf8PathBuf>,
     /// Type of the file (library / debug symbol / else).
     pub flavor: FileFlavor,
 }
 
 impl OutputFile {
     /// Gets the hard link if present; otherwise, returns the path.
-    pub fn bin_dst(&self) -> &PathBuf {
+    pub fn bin_dst(&self) -> &Utf8PathBuf {
         match self.hardlink {
             Some(ref link_dst) => link_dst,
             None => &self.path,
@@ -195,7 +195,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
 
     /// Returns the directory where the artifacts for the given unit are
     /// initially created.
-    pub fn out_dir(&self, unit: &Unit) -> PathBuf {
+    pub fn out_dir(&self, unit: &Unit) -> Utf8PathBuf {
         // Docscrape units need to have doc/ set as the out_dir so sources for reverse-dependencies
         // will be put into doc/ and not into deps/ where the *.examples files are stored.
         if unit.mode.is_doc() || unit.mode.is_doc_scrape() {
@@ -214,7 +214,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
     }
 
     /// Additional export directory from `--artifact-dir`.
-    pub fn export_dir(&self) -> Option<PathBuf> {
+    pub fn export_dir(&self) -> Option<Utf8PathBuf> {
         self.export_dir.clone()
     }
 
@@ -233,28 +233,28 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
     }
 
     /// Returns the final artifact path for the host (`/…/target/debug`)
-    pub fn host_dest(&self) -> &Path {
+    pub fn host_dest(&self) -> &Utf8Path {
         self.host.dest()
     }
 
     /// Returns the root of the build output tree for the host (`/…/target`)
-    pub fn host_root(&self) -> &Path {
+    pub fn host_root(&self) -> &Utf8Path {
         self.host.root()
     }
 
     /// Returns the host `deps` directory path.
-    pub fn host_deps(&self) -> &Path {
+    pub fn host_deps(&self) -> &Utf8Path {
         self.host.deps()
     }
 
     /// Returns the directories where Rust crate dependencies are found for the
     /// specified unit.
-    pub fn deps_dir(&self, unit: &Unit) -> &Path {
+    pub fn deps_dir(&self, unit: &Unit) -> &Utf8Path {
         self.layout(unit.kind).deps()
     }
 
     /// Directory where the fingerprint for the given unit should go.
-    pub fn fingerprint_dir(&self, unit: &Unit) -> PathBuf {
+    pub fn fingerprint_dir(&self, unit: &Unit) -> Utf8PathBuf {
         let dir = self.pkg_dir(unit);
         self.layout(unit.kind).fingerprint().join(dir)
     }
@@ -263,7 +263,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
     ///
     /// The "prefix" should be something to distinguish the file from other
     /// files in the fingerprint directory.
-    pub fn fingerprint_file_path(&self, unit: &Unit, prefix: &str) -> PathBuf {
+    pub fn fingerprint_file_path(&self, unit: &Unit, prefix: &str) -> Utf8PathBuf {
         // Different targets need to be distinguished in the
         let kind = unit.target.kind().description();
         let flavor = if unit.mode.is_any_test() {
@@ -280,13 +280,13 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
     }
 
     /// Path where compiler output is cached.
-    pub fn message_cache_path(&self, unit: &Unit) -> PathBuf {
+    pub fn message_cache_path(&self, unit: &Unit) -> Utf8PathBuf {
         self.fingerprint_file_path(unit, "output-")
     }
 
     /// Returns the directory where a compiled build script is stored.
     /// `/path/to/target/{debug,release}/build/PKG-HASH`
-    pub fn build_script_dir(&self, unit: &Unit) -> PathBuf {
+    pub fn build_script_dir(&self, unit: &Unit) -> Utf8PathBuf {
         assert!(unit.target.is_custom_build());
         assert!(!unit.mode.is_run_custom_build());
         assert!(self.metas.contains_key(unit));
@@ -296,7 +296,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
 
     /// Returns the directory for compiled artifacts files.
     /// `/path/to/target/{debug,release}/deps/artifact/KIND/PKG-HASH`
-    fn artifact_dir(&self, unit: &Unit) -> PathBuf {
+    fn artifact_dir(&self, unit: &Unit) -> Utf8PathBuf {
         assert!(self.metas.contains_key(unit));
         assert!(unit.artifact.is_true());
         let dir = self.pkg_dir(unit);
@@ -321,7 +321,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
     /// Returns the directory where information about running a build script
     /// is stored.
     /// `/path/to/target/{debug,release}/build/PKG-HASH`
-    pub fn build_script_run_dir(&self, unit: &Unit) -> PathBuf {
+    pub fn build_script_run_dir(&self, unit: &Unit) -> Utf8PathBuf {
         assert!(unit.target.is_custom_build());
         assert!(unit.mode.is_run_custom_build());
         let dir = self.pkg_dir(unit);
@@ -330,7 +330,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
 
     /// Returns the "OUT_DIR" directory for running a build script.
     /// `/path/to/target/{debug,release}/build/PKG-HASH/out`
-    pub fn build_script_out_dir(&self, unit: &Unit) -> PathBuf {
+    pub fn build_script_out_dir(&self, unit: &Unit) -> Utf8PathBuf {
         self.build_script_run_dir(unit).join("out")
     }
 
@@ -342,7 +342,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
         target: &Target,
         kind: CompileKind,
         bcx: &BuildContext<'_, '_>,
-    ) -> CargoResult<PathBuf> {
+    ) -> CargoResult<Utf8PathBuf> {
         assert!(target.is_bin());
         let dest = self.layout(kind).dest();
         let info = bcx.target_data.info(kind);
@@ -380,7 +380,12 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
     ///
     /// Returns `None` if the unit shouldn't be uplifted (for example, a
     /// dependent rlib).
-    fn uplift_to(&self, unit: &Unit, file_type: &FileType, from_path: &Path) -> Option<PathBuf> {
+    fn uplift_to(
+        &self,
+        unit: &Unit,
+        file_type: &FileType,
+        from_path: &Utf8Path,
+    ) -> Option<Utf8PathBuf> {
         // Tests, check, doc, etc. should not be uplifted.
         if unit.mode != CompileMode::Build || file_type.flavor == FileFlavor::Rmeta {
             return None;

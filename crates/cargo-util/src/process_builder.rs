@@ -2,6 +2,7 @@ use crate::process_error::ProcessError;
 use crate::read2;
 
 use anyhow::{bail, Context, Result};
+use camino::{Utf8Path, Utf8PathBuf};
 use jobserver::Client;
 use shell_escape::escape;
 use tempfile::NamedTempFile;
@@ -12,7 +13,6 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::{self, Write};
 use std::iter::once;
-use std::path::Path;
 use std::process::{Command, ExitStatus, Output, Stdio};
 
 /// A builder object for an external process, similar to [`std::process::Command`].
@@ -25,7 +25,7 @@ pub struct ProcessBuilder {
     /// Any environment variables that should be set for the program.
     env: BTreeMap<String, Option<OsString>>,
     /// The directory to run the program from.
-    cwd: Option<OsString>,
+    cwd: Option<Utf8PathBuf>,
     /// A list of wrappers that wrap the original program when calling
     /// [`ProcessBuilder::wrapped`]. The last one is the outermost one.
     wrappers: Vec<OsString>,
@@ -119,8 +119,8 @@ impl ProcessBuilder {
     }
 
     /// (chainable) Sets the current working directory of the process.
-    pub fn cwd<T: AsRef<OsStr>>(&mut self, path: T) -> &mut ProcessBuilder {
-        self.cwd = Some(path.as_ref().to_os_string());
+    pub fn cwd<T: AsRef<Utf8Path>>(&mut self, path: T) -> &mut ProcessBuilder {
+        self.cwd = Some(path.as_ref().to_owned());
         self
     }
 
@@ -153,8 +153,8 @@ impl ProcessBuilder {
     }
 
     /// Gets the current working directory for the process.
-    pub fn get_cwd(&self) -> Option<&Path> {
-        self.cwd.as_ref().map(Path::new)
+    pub fn get_cwd(&self) -> Option<&Utf8Path> {
+        self.cwd.as_deref()
     }
 
     /// Gets an environment variable as the process will see it (will inherit from environment

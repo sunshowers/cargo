@@ -104,8 +104,8 @@
 use crate::core::compiler::CompileTarget;
 use crate::core::Workspace;
 use crate::util::{CargoResult, FileLock};
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util::paths;
-use std::path::{Path, PathBuf};
 
 /// Contains the paths of all target output locations.
 ///
@@ -113,25 +113,25 @@ use std::path::{Path, PathBuf};
 pub struct Layout {
     /// The root directory: `/path/to/target`.
     /// If cross compiling: `/path/to/target/$TRIPLE`.
-    root: PathBuf,
+    root: Utf8PathBuf,
     /// The final artifact destination: `$root/debug` (or `release`).
-    dest: PathBuf,
+    dest: Utf8PathBuf,
     /// The directory with rustc artifacts: `$dest/deps`
-    deps: PathBuf,
+    deps: Utf8PathBuf,
     /// The directory for build scripts: `$dest/build`
-    build: PathBuf,
+    build: Utf8PathBuf,
     /// The directory for artifacts, i.e. binaries, cdylibs, staticlibs: `$dest/deps/artifact`
-    artifact: PathBuf,
+    artifact: Utf8PathBuf,
     /// The directory for incremental files: `$dest/incremental`
-    incremental: PathBuf,
+    incremental: Utf8PathBuf,
     /// The directory for fingerprints: `$dest/.fingerprint`
-    fingerprint: PathBuf,
+    fingerprint: Utf8PathBuf,
     /// The directory for examples: `$dest/examples`
-    examples: PathBuf,
+    examples: Utf8PathBuf,
     /// The directory for rustdoc output: `$root/doc`
-    doc: PathBuf,
+    doc: Utf8PathBuf,
     /// The directory for temporary data of integration tests and benches: `$dest/tmp`
-    tmp: PathBuf,
+    tmp: Utf8PathBuf,
     /// The lockfile for a build (`.cargo-lock`). Will be unlocked when this
     /// struct is `drop`ped.
     _lock: FileLock,
@@ -199,43 +199,43 @@ impl Layout {
     }
 
     /// Fetch the destination path for final artifacts  (`/…/target/debug`).
-    pub fn dest(&self) -> &Path {
+    pub fn dest(&self) -> &Utf8Path {
         &self.dest
     }
     /// Fetch the deps path.
-    pub fn deps(&self) -> &Path {
+    pub fn deps(&self) -> &Utf8Path {
         &self.deps
     }
     /// Fetch the examples path.
-    pub fn examples(&self) -> &Path {
+    pub fn examples(&self) -> &Utf8Path {
         &self.examples
     }
     /// Fetch the doc path.
-    pub fn doc(&self) -> &Path {
+    pub fn doc(&self) -> &Utf8Path {
         &self.doc
     }
     /// Fetch the root path (`/…/target`).
-    pub fn root(&self) -> &Path {
+    pub fn root(&self) -> &Utf8Path {
         &self.root
     }
     /// Fetch the incremental path.
-    pub fn incremental(&self) -> &Path {
+    pub fn incremental(&self) -> &Utf8Path {
         &self.incremental
     }
     /// Fetch the fingerprint path.
-    pub fn fingerprint(&self) -> &Path {
+    pub fn fingerprint(&self) -> &Utf8Path {
         &self.fingerprint
     }
     /// Fetch the build script path.
-    pub fn build(&self) -> &Path {
+    pub fn build(&self) -> &Utf8Path {
         &self.build
     }
     /// Fetch the artifact path.
-    pub fn artifact(&self) -> &Path {
+    pub fn artifact(&self) -> &Utf8Path {
         &self.artifact
     }
     /// Create and return the tmp path.
-    pub fn prepare_tmp(&self) -> CargoResult<&Path> {
+    pub fn prepare_tmp(&self) -> CargoResult<&Utf8Path> {
         paths::create_dir_all(&self.tmp)?;
         Ok(&self.tmp)
     }

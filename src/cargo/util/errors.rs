@@ -1,7 +1,7 @@
 use anyhow::Error;
+use camino::Utf8PathBuf;
 use curl::easy::Easy;
 use std::fmt::{self, Write};
-use std::path::PathBuf;
 
 use super::truncate_with_ellipsis;
 
@@ -224,18 +224,18 @@ impl fmt::Display for AlreadyPrintedError {
 /// This error adds no displayable info of it's own.
 pub struct ManifestError {
     cause: Error,
-    manifest: PathBuf,
+    manifest: Utf8PathBuf,
 }
 
 impl ManifestError {
-    pub fn new<E: Into<Error>>(cause: E, manifest: PathBuf) -> Self {
+    pub fn new<E: Into<Error>>(cause: E, manifest: Utf8PathBuf) -> Self {
         Self {
             cause: cause.into(),
             manifest,
         }
     }
 
-    pub fn manifest_path(&self) -> &PathBuf {
+    pub fn manifest_path(&self) -> &Utf8PathBuf {
         &self.manifest
     }
 

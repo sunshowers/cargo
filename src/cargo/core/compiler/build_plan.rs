@@ -7,8 +7,8 @@
 //! dependencies on other Invocations.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use super::build_runner::OutputFile;
@@ -25,12 +25,12 @@ struct Invocation {
     kind: CompileKind,
     compile_mode: CompileMode,
     deps: Vec<usize>,
-    outputs: Vec<PathBuf>,
-    links: BTreeMap<PathBuf, PathBuf>,
+    outputs: Vec<Utf8PathBuf>,
+    links: BTreeMap<Utf8PathBuf, Utf8PathBuf>,
     program: String,
     args: Vec<String>,
     env: BTreeMap<String, String>,
-    cwd: Option<PathBuf>,
+    cwd: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug)]
@@ -42,7 +42,7 @@ pub struct BuildPlan {
 #[derive(Debug, Serialize)]
 struct SerializedBuildPlan {
     invocations: Vec<Invocation>,
-    inputs: Vec<PathBuf>,
+    inputs: Vec<Utf8PathBuf>,
 }
 
 impl Invocation {
@@ -64,7 +64,7 @@ impl Invocation {
         }
     }
 
-    pub fn add_output(&mut self, path: &Path, link: &Option<PathBuf>) {
+    pub fn add_output(&mut self, path: &Utf8Path, link: &Option<Utf8PathBuf>) {
         self.outputs.push(path.to_path_buf());
         if let Some(ref link) = *link {
             self.links.insert(link.clone(), path.to_path_buf());
@@ -140,7 +140,7 @@ impl BuildPlan {
         Ok(())
     }
 
-    pub fn set_inputs(&mut self, inputs: Vec<PathBuf>) {
+    pub fn set_inputs(&mut self, inputs: Vec<Utf8PathBuf>) {
         self.plan.inputs = inputs;
     }
 

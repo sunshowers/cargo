@@ -1,6 +1,6 @@
 use super::{GlobalContext, UnmergedStringList, Value};
+use camino::Utf8PathBuf;
 use serde::{de::Error, Deserialize};
-use std::path::PathBuf;
 
 /// Use with the `get` API to fetch a string that will be converted to a
 /// `PathBuf`. Relative paths are converted to absolute paths based on the
@@ -28,7 +28,7 @@ impl ConfigRelativePath {
     ///
     /// This will always return an absolute path where it's relative to the
     /// location for configuration for this value.
-    pub fn resolve_path(&self, gctx: &GlobalContext) -> PathBuf {
+    pub fn resolve_path(&self, gctx: &GlobalContext) -> Utf8PathBuf {
         self.0.definition.root(gctx).join(&self.0.val)
     }
 
@@ -38,7 +38,7 @@ impl ConfigRelativePath {
     /// Values which don't look like a filesystem path (don't contain `/` or
     /// `\`) will be returned as-is, and everything else will fall through to an
     /// absolute path.
-    pub fn resolve_program(&self, gctx: &GlobalContext) -> PathBuf {
+    pub fn resolve_program(&self, gctx: &GlobalContext) -> Utf8PathBuf {
         gctx.string_to_path(&self.0.val, &self.0.definition)
     }
 }

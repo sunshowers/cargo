@@ -1,7 +1,6 @@
 //! [`BuildRunner`] is the mutable state used during the build process.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::core::compiler::compilation::{self, UnitOutput};
@@ -10,6 +9,7 @@ use crate::core::PackageId;
 use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
 use anyhow::{bail, Context as _};
+use camino::{Utf8Path, Utf8PathBuf};
 use filetime::FileTime;
 use itertools::Itertools;
 use jobserver::Client;
@@ -49,7 +49,7 @@ pub struct BuildRunner<'a, 'gctx> {
     /// Fingerprints used to detect if a unit is out-of-date.
     pub fingerprints: HashMap<Unit, Arc<Fingerprint>>,
     /// Cache of file mtimes to reduce filesystem hits.
-    pub mtime_cache: HashMap<PathBuf, FileTime>,
+    pub mtime_cache: HashMap<Utf8PathBuf, FileTime>,
     /// A set used to track which units have been compiled.
     /// A unit may appear in the job graph multiple times as a dependency of
     /// multiple packages, but it only needs to run once.
@@ -197,11 +197,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         for unit in units_with_build_script {
             for dep in &self.bcx.unit_graph[unit] {
                 if dep.unit.mode.is_run_custom_build() {
-                    let out_dir = self
-                        .files()
-                        .build_script_out_dir(&dep.unit)
-                        .display()
-                        .to_string();
+                    let out_dir = self.files().build_script_out_dir(&dep.unit).to_string();
                     let script_meta = self.get_run_build_script_metadata(&dep.unit);
                     self.compilation
                         .extra_env
@@ -308,7 +304,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
     }
 
     /// Returns the executable for the specified unit (if any).
-    pub fn get_executable(&mut self, unit: &Unit) -> CargoResult<Option<PathBuf>> {
+    pub fn get_executable(&mut self, unit: &Unit) -> CargoResult<Option<Utf8PathBuf>> {
         let is_binary = unit.target.is_executable();
         let is_test = unit.mode.is_any_test();
         if !unit.mode.generates_executable() || !(is_binary || is_test) {
@@ -425,7 +421,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
     /// Returns the list of filenames read by cargo to generate the [`BuildContext`]
     /// (all `Cargo.toml`, etc.).
-    pub fn build_plan_inputs(&self) -> CargoResult<Vec<PathBuf>> {
+    pub fn build_plan_inputs(&self) -> CargoResult<Vec<Utf8PathBuf>> {
         // Keep sorted for consistency.
         let mut inputs = BTreeSet::new();
         // Note: dev-deps are skipped if they are not present in the unit graph.
@@ -437,7 +433,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
     /// Returns a [`UnitOutput`] which represents some information about the
     /// output of a unit.
-    pub fn unit_output(&self, unit: &Unit, path: &Path) -> UnitOutput {
+    pub fn unit_output(&self, unit: &Unit, path: &Utf8Path) -> UnitOutput {
         let script_meta = self.find_build_script_metadata(unit);
         UnitOutput {
             unit: unit.clone(),
@@ -451,7 +447,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
     #[tracing::instrument(skip_all)]
     fn check_collisions(&self) -> CargoResult<()> {
         let mut output_collisions = HashMap::new();
-        let describe_collision = |unit: &Unit, other_unit: &Unit, path: &PathBuf| -> String {
+        let describe_collision = |unit: &Unit, other_unit: &Unit, path: &Utf8PathBuf| -> String {
             format!(
                 "The {} target `{}` in package `{}` has the same output \
                      filename as the {} target `{}` in package `{}`.\n\
@@ -462,7 +458,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
                 other_unit.target.kind().description(),
                 other_unit.target.name(),
                 other_unit.pkg.package_id(),
-                path.display()
+                path,
             )
         };
         let suggestion =
@@ -474,7 +470,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
              the same path; see <https://github.com/rust-lang/cargo/issues/6313>.";
         let report_collision = |unit: &Unit,
                                 other_unit: &Unit,
-                                path: &PathBuf,
+                                path: &Utf8PathBuf,
                                 suggestion: &str|
          -> CargoResult<()> {
             if unit.target.name() == other_unit.target.name() {

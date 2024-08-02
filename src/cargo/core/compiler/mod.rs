@@ -64,6 +64,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Error};
+use camino::{Utf8Path, Utf8PathBuf};
 use lazycell::LazyCell;
 use tracing::{debug, trace};
 
@@ -202,7 +203,7 @@ fn compile<'gctx>(
             // since it might contain future-incompat-report messages
             let work = replay_output_cache(
                 unit.pkg.package_id(),
-                PathBuf::from(unit.pkg.manifest_path()),
+                Utf8PathBuf::from(unit.pkg.manifest_path()),
                 &unit.target,
                 build_runner.files().message_cache_path(unit),
                 build_runner.bcx.build_config.message_format,
@@ -245,7 +246,7 @@ fn make_failed_scrape_diagnostic(
 {top_line}
     Try running with `--verbose` to see the error message.
     If an example should not be scanned, then consider adding `doc-scrape-examples = false` to its `[[example]]` definition in {}",
-        relative_manifest_path.display()
+        relative_manifest_path
     )
 }
 
@@ -530,7 +531,7 @@ fn link_targets(
     let outputs = build_runner.outputs(unit)?;
     let export_dir = build_runner.files().export_dir();
     let package_id = unit.pkg.package_id();
-    let manifest_path = PathBuf::from(unit.pkg.manifest_path());
+    let manifest_path = unit.pkg.manifest_path().to_path_buf();
     let profile = unit.profile.clone();
     let unit_mode = unit.mode;
     let features = unit.features.iter().map(|s| s.to_string()).collect();
@@ -617,7 +618,7 @@ fn add_plugin_deps(
     rustc: &mut ProcessBuilder,
     build_script_outputs: &BuildScriptOutputs,
     build_scripts: &BuildScripts,
-    root_output: &Path,
+    root_output: &Utf8Path,
 ) -> CargoResult<()> {
     let var = paths::dylib_path_envvar();
     let search_path = rustc.get_env(var).unwrap_or_default();
@@ -627,8 +628,8 @@ fn add_plugin_deps(
             .get(*metadata)
             .ok_or_else(|| internal(format!("couldn't find libs for plugin dep {}", pkg_id)))?;
         search_path.append(&mut filter_dynamic_search_path(
-            output.library_paths.iter(),
-            root_output,
+            output.library_paths.iter().map(|p| p.as_std_path()),
+            root_output.as_std_path(),
         ));
     }
     let search_path = paths::join_paths(&search_path, var)?;
@@ -643,13 +644,15 @@ fn add_plugin_deps(
 // clashes with system shared libraries (issue #3366).
 fn filter_dynamic_search_path<'a, I>(paths: I, root_output: &Path) -> Vec<PathBuf>
 where
-    I: Iterator<Item = &'a PathBuf>,
+    I: Iterator<Item = &'a Path>,
 {
     let mut search_path = vec![];
     for dir in paths {
         let dir = match dir.to_str().and_then(|s| s.split_once("=")) {
-            Some(("native" | "crate" | "dependency" | "framework" | "all", path)) => path.into(),
-            _ => dir.clone(),
+            Some(("native" | "crate" | "dependency" | "framework" | "all", path)) => {
+                PathBuf::from(path)
+            }
+            _ => dir.to_path_buf(),
         };
         if dir.starts_with(&root_output) {
             search_path.push(dir);
@@ -694,7 +697,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 
     if unit.target.is_test() || unit.target.is_bench() {
         let tmp = build_runner.files().layout(unit.kind).prepare_tmp()?;
-        base.env("CARGO_TARGET_TMPDIR", tmp.display().to_string());
+        base.env("CARGO_TARGET_TMPDIR", tmp.to_string());
     }
     if build_runner.bcx.gctx.nightly_features_allowed {
         // This must come after `build_base_args` (which calls `add_path_args`) so that the `cwd`
@@ -702,7 +705,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
         base.env(
             "CARGO_RUSTC_CURRENT_DIR",
             base.get_cwd()
-                .map(|c| c.display().to_string())
+                .map(|c| c.to_string())
                 .unwrap_or(String::new()),
         );
     }
@@ -1600,7 +1603,7 @@ struct OutputOptions {
     /// is fresh. The file is created lazily so that in the normal case, lots
     /// of empty files are not created. If this is None, the output will not
     /// be cached (such as when replaying cached messages).
-    cache_cell: Option<(PathBuf, LazyCell<File>)>,
+    cache_cell: Option<(Utf8PathBuf, LazyCell<File>)>,
     /// If `true`, display any diagnostics.
     /// Other types of JSON messages are processed regardless
     /// of the value of this flag.
@@ -1645,7 +1648,7 @@ fn on_stderr_line(
     state: &JobState<'_, '_>,
     line: &str,
     package_id: PackageId,
-    manifest_path: &std::path::Path,
+    manifest_path: &Utf8Path,
     target: &Target,
     options: &mut OutputOptions,
 ) -> CargoResult<()> {
@@ -1667,7 +1670,7 @@ fn on_stderr_line_inner(
     state: &JobState<'_, '_>,
     line: &str,
     package_id: PackageId,
-    manifest_path: &std::path::Path,
+    manifest_path: &Utf8Path,
     target: &Target,
     options: &mut OutputOptions,
 ) -> CargoResult<bool> {
@@ -1861,9 +1864,9 @@ fn on_stderr_line_inner(
 /// Usually used when a job is fresh and doesn't need to recompile.
 fn replay_output_cache(
     package_id: PackageId,
-    manifest_path: PathBuf,
+    manifest_path: Utf8PathBuf,
     target: &Target,
-    path: PathBuf,
+    path: Utf8PathBuf,
     format: MessageFormat,
     show_diagnostics: bool,
 ) -> Work {
@@ -1946,7 +1949,7 @@ fn should_include_scrape_units(bcx: &BuildContext<'_, '_>, unit: &Unit) -> bool 
 }
 
 /// Gets the file path of function call information output from `rustdoc`.
-fn scrape_output_path(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<PathBuf> {
+fn scrape_output_path(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<Utf8PathBuf> {
     assert!(unit.mode.is_doc() || unit.mode.is_doc_scrape());
     build_runner
         .outputs(unit)

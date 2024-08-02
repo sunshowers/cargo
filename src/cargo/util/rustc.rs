@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util::{paths, ProcessBuilder, ProcessError};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
@@ -45,7 +46,7 @@ impl Rustc {
         path: PathBuf,
         wrapper: Option<PathBuf>,
         workspace_wrapper: Option<PathBuf>,
-        rustup_rustc: &Path,
+        rustup_rustc: &Utf8Path,
         cache_location: Option<PathBuf>,
         gctx: &GlobalContext,
     ) -> CargoResult<Rustc> {
@@ -169,7 +170,7 @@ impl Rustc {
 /// <https://github.com/rust-lang/rust/issues/49761>
 #[derive(Debug)]
 struct Cache {
-    cache_location: Option<PathBuf>,
+    cache_location: Option<Utf8PathBuf>,
     dirty: bool,
     data: CacheData,
 }
@@ -192,11 +193,11 @@ struct Output {
 
 impl Cache {
     fn load(
-        wrapper: Option<&Path>,
-        workspace_wrapper: Option<&Path>,
-        rustc: &Path,
-        rustup_rustc: &Path,
-        cache_location: Option<PathBuf>,
+        wrapper: Option<&Utf8Path>,
+        workspace_wrapper: Option<&Utf8Path>,
+        rustc: &Utf8Path,
+        rustup_rustc: &Utf8Path,
+        cache_location: Option<Utf8PathBuf>,
         gctx: &GlobalContext,
     ) -> Cache {
         match (
@@ -232,8 +233,8 @@ impl Cache {
                     data,
                 };
 
-                fn read(path: &Path) -> CargoResult<CacheData> {
-                    let json = paths::read(path)?;
+                fn read(path: &Utf8Path) -> CargoResult<CacheData> {
+                    let json = paths::read(path.as_std_path())?;
                     Ok(serde_json::from_str(&json)?)
                 }
             }
@@ -317,10 +318,10 @@ impl Drop for Cache {
 }
 
 fn rustc_fingerprint(
-    wrapper: Option<&Path>,
-    workspace_wrapper: Option<&Path>,
-    rustc: &Path,
-    rustup_rustc: &Path,
+    wrapper: Option<&Utf8Path>,
+    workspace_wrapper: Option<&Utf8Path>,
+    rustc: &Utf8Path,
+    rustup_rustc: &Utf8Path,
     gctx: &GlobalContext,
 ) -> CargoResult<u64> {
     let mut hasher = StableHasher::new();

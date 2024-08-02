@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Context as _};
+use camino::Utf8PathBuf;
 use glob::glob;
 use itertools::Itertools;
 use tracing::debug;
@@ -51,7 +52,7 @@ pub struct Workspace<'gctx> {
     // This path is a path to where the current cargo subcommand was invoked
     // from. That is the `--manifest-path` argument to Cargo, and
     // points to the "main crate" that we're going to worry about.
-    current_manifest: PathBuf,
+    current_manifest: Utf8PathBuf,
 
     // A list of packages found in this workspace. Always includes at least the
     // package mentioned by `current_manifest`.
@@ -220,7 +221,7 @@ impl<'gctx> Workspace<'gctx> {
         Ok(ws)
     }
 
-    fn new_default(current_manifest: PathBuf, gctx: &'gctx GlobalContext) -> Workspace<'gctx> {
+    fn new_default(current_manifest: Utf8PathBuf, gctx: &'gctx GlobalContext) -> Workspace<'gctx> {
         Workspace {
             gctx,
             current_manifest,

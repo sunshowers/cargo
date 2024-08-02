@@ -35,16 +35,16 @@ pub enum DirtyReason {
         new: String,
     },
     DepInfoOutputChanged {
-        old: PathBuf,
-        new: PathBuf,
+        old: Utf8PathBuf,
+        new: Utf8PathBuf,
     },
     RerunIfChangedOutputFileChanged {
-        old: PathBuf,
-        new: PathBuf,
+        old: Utf8PathBuf,
+        new: Utf8PathBuf,
     },
     RerunIfChangedOutputPathsChanged {
-        old: Vec<PathBuf>,
-        new: Vec<PathBuf>,
+        old: Vec<Utf8PathBuf>,
+        new: Vec<Utf8PathBuf>,
     },
     EnvVarsChanged {
         old: String,
@@ -217,10 +217,7 @@ impl DirtyReason {
                 FsStatus::StaleItem(item) => match item {
                     StaleItem::MissingFile(missing_file) => {
                         let file = missing_file.strip_prefix(root).unwrap_or(&missing_file);
-                        s.dirty_because(
-                            unit,
-                            format_args!("the file `{}` is missing", file.display()),
-                        )
+                        s.dirty_because(unit, format_args!("the file `{}` is missing", file))
                     }
                     StaleItem::ChangedFile {
                         stale,
@@ -232,7 +229,7 @@ impl DirtyReason {
                         let after = Self::after(*reference_mtime, *stale_mtime, "last build");
                         s.dirty_because(
                             unit,
-                            format_args!("the file `{}` has changed ({after})", file.display()),
+                            format_args!("the file `{}` has changed ({after})", file),
                         )
                     }
                     StaleItem::ChangedEnv { var, .. } => s.dirty_because(

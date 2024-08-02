@@ -4,12 +4,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::hash;
 use std::mem;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use bytesize::ByteSize;
+use camino::{Utf8Path, Utf8PathBuf};
 use cargo_util_schemas::manifest::RustVersion;
 use curl::easy::Easy;
 use curl::multi::{EasyHandle, Multi};
@@ -48,7 +48,7 @@ struct PackageInner {
     /// The package's manifest.
     manifest: Manifest,
     /// The root of the package.
-    manifest_path: PathBuf,
+    manifest_path: Utf8PathBuf,
 }
 
 impl Ord for Package {
@@ -76,7 +76,7 @@ pub struct SerializedPackage {
     dependencies: Vec<Dependency>,
     targets: Vec<Target>,
     features: BTreeMap<InternedString, Vec<InternedString>>,
-    manifest_path: PathBuf,
+    manifest_path: Utf8PathBuf,
     metadata: Option<toml::Value>,
     publish: Option<Vec<String>>,
     authors: Vec<String>,
@@ -96,7 +96,7 @@ pub struct SerializedPackage {
 
 impl Package {
     /// Creates a package from a manifest and its location.
-    pub fn new(manifest: Manifest, manifest_path: &Path) -> Package {
+    pub fn new(manifest: Manifest, manifest_path: &Utf8Path) -> Package {
         Package {
             inner: Rc::new(PackageInner {
                 manifest,
@@ -118,7 +118,7 @@ impl Package {
         &mut Rc::make_mut(&mut self.inner).manifest
     }
     /// Gets the path to the manifest.
-    pub fn manifest_path(&self) -> &Path {
+    pub fn manifest_path(&self) -> &Utf8Path {
         &self.inner.manifest_path
     }
     /// Gets the name of the package.
@@ -130,7 +130,7 @@ impl Package {
         self.manifest().package_id()
     }
     /// Gets the root folder of the package.
-    pub fn root(&self) -> &Path {
+    pub fn root(&self) -> &Utf8Path {
         self.manifest_path().parent().unwrap()
     }
     /// Gets the summary for the package.

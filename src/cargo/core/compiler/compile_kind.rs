@@ -5,6 +5,7 @@ use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
 use crate::util::{try_canonicalize, GlobalContext, StableHasher};
 use anyhow::Context as _;
+use camino::Utf8Path;
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fs;
@@ -138,7 +139,7 @@ impl CompileTarget {
         // If `name` ends in `.json` then it's likely a custom target
         // specification. Canonicalize the path to ensure that different builds
         // with different paths always produce the same result.
-        let path = try_canonicalize(Path::new(name))
+        let path = try_canonicalize(Utf8Path::new(name))
             .with_context(|| format!("target path {:?} is not a valid file", name))?;
 
         let name = path
